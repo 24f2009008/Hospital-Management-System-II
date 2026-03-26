@@ -1,6 +1,6 @@
 # app.py
 from datetime import datetime, date, timedelta
-from flask import Flask, render_template, request, redirect,  flash
+from flask import Flask, render_template, request, redirect,  flash, jsonify
 from flask_restful import Api
 from flask_login import (
     LoginManager,
@@ -431,1424 +431,2021 @@ def main():
     return render_template("dashboard.html")
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
+@app.route("/api/login", methods=["POST"])
+def login_api():
     logout_user()
-    if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
-        session = SessionLocal()
-        try:
-            user = session.query(User).filter_by(username=username).first()
-            if user and check_password_hash(user.password, password):
-                login_user(user)
-                flash("Logged in successfully.", "success")
-                if user.role == "admin":
-                    return redirect("/admin/dashboard")
-                elif user.role == "doctor":
-                    return redirect("/doctor/dashboard")
-                elif user.role == "patient":
-                    return redirect("/patient/dashboard")
-                else:
-                    flash("Unknown user role.", "danger")
-                    logout_user()
-                    return redirect("/login") 
-            else:
-                flash("Invalid username or password.", "danger")
-        except Exception as e:
-            flash("An error occurred during login.", "danger")
-            print(f"Login error: {e}")
-        finally:
-            session.close()
-    return render_template("login.html")
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if current_user.is_authenticated:
-        logout_user()
+    data = request.get_json()
+
+    username = data.get("username")
+    password = data.get("password")
 
     session = SessionLocal()
 
     try:
-        departments = session.query(Department).order_by(Department.name).all()
+        user = session.query(User).filter_by(username=username).first()
 
-        if request.method == "POST":
-            name = request.form.get("name", "").strip()
-            username = request.form.get("username", "").strip()
-            password = request.form.get("password", "").strip()
+        if user and check_password_hash(user.password, password):
+            login_user(user)
 
-            if not all([name, username, password]):
-                flash("Please fill in all required fields.", "danger")
-                return render_template("register.html", departments=departments, role="patient")
+            return jsonify({
+                "success": True,
+                "message": "Login successful",
+                "role": user.role,
+                "user_id": user.id
+            })
 
-            existing_user = session.query(User).filter_by(username=username).first()
-            if existing_user:
-                flash("Username already exists. Please choose another one.", "danger")
-                return render_template("register.html", departments=departments, role="patient")
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Invalid username or password"
+            }), 401
 
-            hashed_password = generate_password_hash(password)
-            user = User(
-                username=username,
-                password=hashed_password,
-                name=name,
-                role="patient",
-            )
-            session.add(user)
-            session.commit()
+    except Exception as e:
+        print(f"Login error: {e}")
+        return jsonify({
+            "success": False,
+            "message": "Server error"
+        }), 500
 
-            gender = request.form.get("gender")
-            dob = request.form.get("dob")
-            blood_group = request.form.get("bloodGrp")
-            address = request.form.get("address")
+    finally:
+        session.close()
 
-            if not all([gender, dob, blood_group, address]):
-                flash("Please fill in all patient details.", "danger")
-                return render_template("register.html", departments=departments, role="patient")
+@app.route("/api/register", methods=["POST"])
+def api_register():
 
-            new_patient = Patient(
-                uid=user.id,
-                gender=gender,
-                dob=datetime.strptime(dob, "%Y-%m-%d").date(),
-                blood_group=blood_group,
-                address=address,
-                is_active=True
-            )
-            session.add(new_patient)
-            session.commit()
+    data = request.get_json()
+    session = SessionLocal()
 
-            flash("Patient account created successfully! You can now log in.", "success")
-            return redirect("/login")
+    try:
+        name = data.get("name", "").strip()
+        username = data.get("username", "").strip()
+        password = data.get("password", "").strip()
+        gender = data.get("gender")
+        dob = data.get("dob")
+        blood_group = data.get("bloodGrp")
+        address = data.get("address")
 
-        return render_template("register.html", departments=departments, role="patient")
+        if not all([name, username, password, gender, dob, blood_group, address]):
+            return jsonify({
+                "success": False,
+                "message": "All fields are required"
+            }), 400
+
+        existing_user = session.query(User).filter_by(username=username).first()
+        if existing_user:
+            return jsonify({
+                "success": False,
+                "message": "Username already exists"
+            }), 400
+
+        hashed_password = generate_password_hash(password)
+
+        user = User(
+            username=username,
+            password=hashed_password,
+            name=name,
+            role="patient"
+        )
+
+        session.add(user)
+        session.flush()  
+
+        new_patient = Patient(
+            uid=user.id,
+            gender=gender,
+            dob=datetime.strptime(dob, "%Y-%m-%d").date(),
+            blood_group=blood_group,
+            address=address,
+            is_active=True
+        )
+
+        session.add(new_patient)
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Registration successful",
+            "role": user.role,
+            "user_id": user.id
+        }), 201
 
     except Exception as e:
         session.rollback()
-        print(f"[ERROR] Registration failed: {e}")
-        flash("An error occurred during registration. Please try again.", "danger")
-        return render_template("register.html", departments=[], role="patient")
+        print(f"Register error: {e}")
+
+        return jsonify({
+            "success": False,
+            "message": "Server error"
+        }), 500
 
     finally:
         session.close()
 
-
-@app.route("/logout")
+@app.route("/api/logout", methods=["POST"])
 @login_required
-def logout():
+def logout_api():
     logout_user()
-    flash("Logged out.", "info")
-    return redirect("/login")
 
-@app.route("/dashboard")
+    return jsonify({
+        "success": True,
+        "message": "Logged out successfully"
+    }), 200
+
+@app.route("/api/dashboard", methods=["GET"])
 @login_required
-def m_dash():
-    return f"Role: {current_user.role} | Username: {current_user.username}"
+def dashboard_api():
+    return jsonify({
+        "success": True,
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "role": current_user.role
+        }
+    }), 200
 
             
-@app.route("/admin/dashboard")
+@app.route("/api/admin/dashboard", methods=["GET"])
 @login_required
-def admin_dashboard():
+def admin_dashboard_api():
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
     try:
-        # Get statistics
         total_doctors = session.query(Doctor).count()
         total_patients = session.query(Patient).count()
         total_appointments = session.query(Appointment).count()
-        
-        # Get recent doctors (last 5)
-        doctors = session.query(Doctor).join(User).join(Department).order_by(Doctor.id.desc()).limit(5).all()
-        
-        # Get recent patients (last 5)
-        patients = session.query(Patient).join(User).order_by(Patient.id.desc()).limit(5).all()
-        
-        # Get recent appointments (last 10)
-        appointments = session.query(Appointment).join(Doctor).join(Patient).order_by(Appointment.appoint_date.desc(), Appointment.appoint_time.desc()).limit(10).all()
-        
-        # Get all departments
+
+        doctors = session.query(Doctor).join(User).join(Department)\
+            .order_by(Doctor.id.desc()).limit(5).all()
+
+        patients = session.query(Patient).join(User)\
+            .order_by(Patient.id.desc()).limit(5).all()
+
+        appointments = session.query(Appointment).join(Doctor).join(Patient)\
+            .order_by(Appointment.appoint_date.desc(), Appointment.appoint_time.desc())\
+            .limit(10).all()
+
         departments = session.query(Department).order_by(Department.name).all()
-        
-        return render_template("dashboard_admin.html",
-                             total_doctors=total_doctors,
-                             total_patients=total_patients,
-                             total_appointments=total_appointments,
-                             doctors=doctors,
-                             patients=patients,
-                             appointments=appointments,
-                             departments=departments)
+
+        return jsonify({
+            "success": True,
+            "stats": {
+                "doctors": total_doctors,
+                "patients": total_patients,
+                "appointments": total_appointments
+            },
+            "recent_doctors": [
+                {
+                    "id": d.id,
+                    "name": d.user.name,
+                    "specialization": d.department.name
+                } for d in doctors
+            ],
+            "recent_patients": [
+                {
+                    "id": p.id,
+                    "name": p.user.name
+                } for p in patients
+            ],
+            "recent_appointments": [
+                {
+                    "id": a.id,
+                    "doctor": a.doctor.user.name,
+                    "patient": a.patient.user.name,
+                    "date": str(a.appoint_date),
+                    "time": str(a.appoint_time),
+                    "status": a.status
+                } for a in appointments
+            ],
+            "departments": [
+                {
+                    "id": d.id,
+                    "name": d.name
+                } for d in departments
+            ]
+        }), 200
+
     except Exception as e:
         print(f"[ERROR] Admin dashboard: {e}")
-        flash("Error loading dashboard.", "danger")
-        return redirect("/login")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading dashboard"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/doctor/dashboard")
-@login_required
-def doctor_dashboard():
-    if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-
-    session = SessionLocal()
-    try:
-        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
-        if not doctor:
-            flash("Doctor profile not found.", "danger")
-            return redirect("/login")
-
-        today = date.today()
-        next_week = today + timedelta(days=7)
-
-        todays_appointments = (
-            session.query(Appointment)
-            .filter(Appointment.docid == doctor.id, Appointment.appoint_date == today)
-            .count()
-        )
-
-        pending_consultations = (
-            session.query(Appointment)
-            .filter(Appointment.docid == doctor.id, Appointment.status == "Booked")
-            .count()
-        )
-
-        upcoming_appointments = (
-            session.query(Appointment)
-            .filter(Appointment.docid == doctor.id, Appointment.appoint_date.between(today, next_week))
-            .count()
-        )
-
-        assigned_patients = (
-            session.query(Patient)
-            .join(Appointment, Appointment.patid == Patient.id)
-            .filter(Appointment.docid == doctor.id)
-            .group_by(Patient.id)
-            .order_by(func.max(Appointment.appoint_date).desc())
-            .limit(5)
-            .all()
-        )
-
-        chart_start = today - timedelta(days=6)
-        daily_counts = (
-            session.query(Appointment.appoint_date, func.count(Appointment.id))
-            .filter(Appointment.docid == doctor.id, Appointment.appoint_date >= chart_start)
-            .group_by(Appointment.appoint_date)
-            .order_by(Appointment.appoint_date)
-            .all()
-        )
-
-        chart_data = {
-            "dates": [str(d[0]) for d in daily_counts],
-            "counts": [d[1] for d in daily_counts],
-        }
-
-        return render_template(
-            "dashboard_doctor.html",
-            todays_appointments=todays_appointments,
-            pending_consultations=pending_consultations,
-            upcoming_appointments=upcoming_appointments,
-            assigned_patients=assigned_patients,
-            chart_data=chart_data,
-        )
-
-    except Exception as e:
-        import traceback
-        print("[ERROR] Doctor dashboard:", e)
-        traceback.print_exc()
-        flash("Error loading dashboard.", "danger")
-        return redirect("/login")
-    finally:
-        session.close()
-
-
-@app.route("/patient/dashboard")
+@app.route("/api/patient/dashboard", methods=["GET"])
 @login_required
 def patient_dashboard():
+
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
-        
+
         if not patient:
-            flash("Patient profile not found. Please complete your profile.", "warning")
-            return redirect("/patient/profile")
-        
-        # Get upcoming appointments
+            return jsonify({
+                "success": False,
+                "message": "Patient not found"
+            }), 404
+
         upcoming_appointments = session.query(Appointment).filter_by(
             patid=patient.id,
             status="Booked"
         ).filter(Appointment.appoint_date >= date.today()).count()
-        
-        # Get total appointments
-        total_appointments = session.query(Appointment).filter_by(patid=patient.id).count()
-        
-        # Get active doctors
+
+        total_appointments = session.query(Appointment).filter_by(
+            patid=patient.id
+        ).count()
+
         doctors = session.query(Doctor, User, Department).join(
             User, Doctor.uid == User.id
         ).outerjoin(
             Department, Doctor.depid == Department.id
         ).filter(Doctor.status == "active").limit(6).all()
-        
-        doctors_list = []
-        for doctor, user, dept in doctors:
-            doctors_list.append({
-                'id': doctor.id,
-                'name': user.name,
-                'department': dept.name if dept else 'General',
-                'qualification': doctor.qualification or 'N/A',
-                'experience': doctor.experience,
-                'specialization': doctor.specialization
-            })
-        
-        # Get recent appointments
+
+        doctors_list = [
+            {
+                "id": doctor.id,
+                "name": user.name,
+                "department": dept.name if dept else "General",
+                "qualification": doctor.qualification or "N/A",
+                "experience": doctor.experience,
+                "specialization": doctor.specialization
+            }
+            for doctor, user, dept in doctors
+        ]
+
         recent_appointments = session.query(Appointment).filter_by(
             patid=patient.id
         ).order_by(
             Appointment.appoint_date.desc(),
             Appointment.appoint_time.desc()
         ).limit(5).all()
-        
-        appointments_list = []
-        for apt in recent_appointments:
-            appointments_list.append({
-                'id': apt.id,
-                'doctor_name': apt.doctor.user.name if apt.doctor and apt.doctor.user else 'N/A',
-                'date': apt.appoint_date.strftime('%Y-%m-%d') if apt.appoint_date else 'N/A',
-                'time': apt.appoint_time.strftime('%H:%M') if apt.appoint_time else 'N/A',
-                'reason': apt.reason_for_visit or 'N/A',
-                'status': apt.status
-            })
-        
-        stats = {
-            'total_appointments': total_appointments
-        }
-        
-        return render_template(
-            "dashboard_patient.html",
-            upcoming=upcoming_appointments,
-            stats=stats,
-            doctors=doctors_list,
-            appointments=appointments_list
-        )
-        
+
+        appointments_list = [
+            {
+                "id": apt.id,
+                "doctor_name": apt.doctor.user.name if apt.doctor and apt.doctor.user else "N/A",
+                "date": apt.appoint_date.strftime('%Y-%m-%d') if apt.appoint_date else "N/A",
+                "time": apt.appoint_time.strftime('%H:%M') if apt.appoint_time else "N/A",
+                "reason": apt.reason_for_visit or "N/A",
+                "status": apt.status
+            }
+            for apt in recent_appointments
+        ]
+
+        return jsonify({
+            "success": True,
+            "stats": {
+                "total_appointments": total_appointments,
+                "upcoming": upcoming_appointments
+            },
+            "doctors": doctors_list,
+            "appointments": appointments_list
+        }), 200
+
     except Exception as e:
-        print("[ERROR] patient_dashboard:", e)
-        flash("Error loading dashboard.", "danger")
-        return render_template("dashboard_patient.html", upcoming=0, stats={'total_appointments': 0}, doctors=[], appointments=[])
+        print(f"[ERROR] Patient dashboard: {e}")
+
+        return jsonify({
+            "success": False,
+            "message": "Server error"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/patient/doctors")
+@app.route("/api/patient/doctors", methods=["GET"])
 @login_required
 def patient_doctor_search():
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
     try:
         search_query = request.args.get("search", "").strip()
         specialization = request.args.get("specialization", "").strip()
         department_filter = request.args.get("department", "").strip()
-        
+
         query = session.query(Doctor, User, Department).join(
             User, Doctor.uid == User.id
         ).outerjoin(
             Department, Doctor.depid == Department.id
         ).filter(Doctor.status == "active")
-        
+
+        # Search by name
         if search_query:
             query = query.filter(User.name.ilike(f"%{search_query}%"))
-        
+
+        # Filter by specialization
         if specialization:
             query = query.filter(Doctor.specialization.ilike(f"%{specialization}%"))
-        
+
+        # Filter by department (case-insensitive)
         if department_filter:
-            query = query.filter(Department.name == department_filter)
-        
+            query = query.filter(Department.name.ilike(f"%{department_filter}%"))
+
         results = query.all()
-        
-        # Format doctors data for template
-        doctors = []
-        for doctor, user, dept in results:
-            doctors.append({
-                'id': doctor.id,
-                'name': user.name,
-                'department': dept.name if dept else 'General',
-                'specialization': doctor.specialization or 'General Physician',
-                'qualification': doctor.qualification or 'N/A',
-                'experience': doctor.experience or 0,
-                'username': user.username
-            })
-        
-        # Get all departments for filter
+
+        doctors = [
+            {
+                "id": doctor.id,
+                "name": user.name,
+                "department": dept.name if dept else "General",
+                "specialization": doctor.specialization or "General Physician",
+                "qualification": doctor.qualification or "N/A",
+                "experience": doctor.experience or 0,
+                "username": user.username
+            }
+            for doctor, user, dept in results
+        ]
         departments = session.query(Department).all()
-        
-        return render_template(
-            "patient_doctor_search.html",
-            doctors=doctors,
-            departments=departments,
-            search_query=search_query,
-            selected_specialization=specialization,
-            selected_department=department_filter
-        )
+        departments_list = [
+            {
+                "id": d.id,
+                "name": d.name
+            }
+            for d in departments
+        ]
+
+        return jsonify({
+            "success": True,
+            "doctors": doctors,
+            "departments": departments_list,
+            "filters": {
+                "search": search_query,
+                "specialization": specialization,
+                "department": department_filter
+            }
+        }), 200
+
     except Exception as e:
-        print("[ERROR] patient_doctor_search:", e)
-        flash("Error loading doctors.", "danger")
-        return redirect("/patient/dashboard")
+        print(f"[ERROR] patient_doctor_search:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Server error"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/patient/appointments")
+@app.route("/api/patient/appointments", methods=["GET"])
 @login_required
 def patient_appointments():
+
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
         if not patient:
-            flash("Patient profile not found.", "danger")
-            return redirect("/login")
-        
-        appointments = session.query(Appointment).filter_by(patid=patient.id).order_by(
+            return jsonify({
+                "success": False,
+                "message": "Patient not found"
+            }), 404
+
+        appointments = session.query(Appointment).filter_by(
+            patid=patient.id
+        ).order_by(
             Appointment.appoint_date.desc(),
             Appointment.appoint_time.desc()
         ).all()
-        
-        return render_template("patient_appointments.html", appointments=appointments)
+
+        appointments_list = [
+            {
+                "id": apt.id,
+                "doctor_name": apt.doctor.user.name if apt.doctor and apt.doctor.user else "N/A",
+                "date": apt.appoint_date.strftime("%Y-%m-%d") if apt.appoint_date else None,
+                "time": apt.appoint_time.strftime("%H:%M") if apt.appoint_time else None,
+                "status": apt.status,
+                "reason": apt.reason_for_visit or "",
+                "diagnosis": apt.treatment.diagnosis if hasattr(apt, "treatment") and apt.treatment else None,
+                "prescription": apt.treatment.prescription if hasattr(apt, "treatment") and apt.treatment else None
+            }
+            for apt in appointments
+        ]
+
+        return jsonify({
+            "success": True,
+            "appointments": appointments_list
+        }), 200
+
     except Exception as e:
         print("[ERROR] patient_appointments:", e)
-        flash("Error loading appointments.", "danger")
-        return redirect("/patient/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Server error"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/patient/appointments/book", methods=["GET", "POST"])
+@app.route("/api/patient/appointments/book", methods=["POST"])
 @login_required
 def patient_book_appointment():
+
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
+        data = request.get_json()
+
+        doctor_id = data.get("doctor_id")
+        appoint_date_str = data.get("appoint_date")
+        appoint_time_str = data.get("appoint_time")
+        reason = data.get("reason")
+
+        if not all([doctor_id, appoint_date_str, appoint_time_str, reason]):
+            return jsonify({
+                "success": False,
+                "message": "All fields are required"
+            }), 400
+
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
         if not patient:
-            flash("Patient profile not found.", "danger")
-            return redirect("/login")
-        
-        if request.method == "POST":
-            try:
-                doctor_id = request.form.get("doctor_id")
-                appoint_date_str = request.form.get("appoint_date")
-                appoint_time_str = request.form.get("appoint_time")
-                reason = request.form.get("reason")
-                
-                if not all([doctor_id, appoint_date_str, appoint_time_str, reason]):
-                    flash("All fields are required.", "warning")
-                    return redirect("/patient/appointments/book")
-                
-                appoint_date = datetime.strptime(appoint_date_str, "%Y-%m-%d").date()
-                appoint_time = datetime.strptime(appoint_time_str, "%H:%M").time()
-                
-                # Check if date is in the past
-                if appoint_date < date.today():
-                    flash("Cannot book appointments in the past.", "warning")
-                    return redirect("/patient/appointments/book")
-                
-                # Check doctor availability
-                is_available, message = check_doctor_availability(session, doctor_id, appoint_date, appoint_time)
-                if not is_available:
-                    flash(message, "warning")
-                    return redirect("/patient/appointments/book")
-                
-                # Generate appointment number
-                appointment_number = generate_appointment_number(session)
-                
-                # Create appointment
-                appointment = Appointment(
-                    appointment_number=appointment_number,
-                    patid=patient.id,
-                    docid=doctor_id,
-                    appoint_date=appoint_date,
-                    appoint_time=appoint_time,
-                    reason_for_visit=reason,
-                    status="Booked"
-                )
-                
-                session.add(appointment)
-                session.commit()
-                
-                flash(f"Appointment booked successfully! Appointment Number: {appointment_number}", "success")
-                return redirect("/patient/appointments")
-                
-            except ValueError as ve:
-                flash("Invalid date or time format.", "warning")
-                return redirect("/patient/appointments/book")
-            except Exception as e:
-                session.rollback()
-                print("[ERROR] patient_book_appointment:", e)
-                flash("Error booking appointment. Please try again.", "danger")
-                return redirect("/patient/appointments/book")
-        
-        # GET request - show booking form
-        doctor_id = request.args.get("doctor_id")
-        department_id = request.args.get("department_id")
-        
-        # Build query for doctors
-        doctor_query = session.query(Doctor).join(User).filter(Doctor.status == "active")
-        
-        # Filter by department if selected
-        selected_department = None
-        if department_id:
-            doctor_query = doctor_query.filter(Doctor.depid == department_id)
-            selected_department = session.query(Department).filter_by(id=department_id).first()
-        
-        doctors = doctor_query.all()
-        
-        # Get selected doctor if provided
-        selected_doctor = None
-        if doctor_id:
-            selected_doctor = session.query(Doctor).filter_by(id=doctor_id).first()
-        
-        # Get all departments for filter
-        departments = session.query(Department).order_by(Department.name).all()
-        
-        return render_template(
-            "patient_appointment_book.html",
-            doctors=doctors,
-            selected_doctor=selected_doctor,
-            departments=departments,
-            selected_department=selected_department,
-            date=date,
-            timedelta=timedelta
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
+
+        try:
+            appoint_date = datetime.strptime(appoint_date_str, "%Y-%m-%d").date()
+            appoint_time = datetime.strptime(appoint_time_str, "%H:%M").time()
+        except:
+            return jsonify({
+                "success": False,
+                "message": "Invalid date or time format"
+            }), 400
+
+        if appoint_date < date.today():
+            return jsonify({
+                "success": False,
+                "message": "Cannot book appointments in the past"
+            }), 400
+
+        existing = session.query(Appointment).filter_by(
+            docid=doctor_id,
+            appoint_date=appoint_date,
+            appoint_time=appoint_time,
+            status="Booked"
+        ).first()
+
+        if existing:
+            return jsonify({
+                "success": False,
+                "message": "Time slot already booked"
+            }), 409
+
+        appointment_number = generate_appointment_number(session)
+
+        appointment = Appointment(
+            appointment_number=appointment_number,
+            patid=patient.id,
+            docid=doctor_id,
+            appoint_date=appoint_date,
+            appoint_time=appoint_time,
+            reason_for_visit=reason,
+            status="Booked"
         )
-        
+
+        session.add(appointment)
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Appointment booked successfully",
+            "appointment_number": appointment_number
+        }), 201
+
     except Exception as e:
+        session.rollback()
         print("[ERROR] patient_book_appointment:", e)
-        flash("Error loading booking form.", "danger")
-        return redirect("/patient/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error booking appointment"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/patient/appointments/<int:appointment_id>/reschedule", methods=["GET", "POST"])
+@app.route("/api/patient/appointments/<int:appointment_id>/reschedule", methods=["PUT"])
 @login_required
 def patient_reschedule_appointment(appointment_id):
+
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
+        data = request.get_json()
+
+        new_date_str = data.get("appoint_date")
+        new_time_str = data.get("appoint_time")
+
+        if not all([new_date_str, new_time_str]):
+            return jsonify({
+                "success": False,
+                "message": "Date and time are required"
+            }), 400
+
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
         if not patient:
-            flash("Patient profile not found.", "danger")
-            return redirect("/login")
-        
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
+
         appointment = session.query(Appointment).filter_by(
             id=appointment_id,
             patid=patient.id
         ).first()
-        
+
         if not appointment:
-            flash("Appointment not found.", "danger")
-            return redirect("/patient/appointments")
-        
+            return jsonify({
+                "success": False,
+                "message": "Appointment not found"
+            }), 404
+
         if appointment.status != "Booked":
-            flash("Only booked appointments can be rescheduled.", "warning")
-            return redirect("/patient/appointments")
-        
-        if request.method == "POST":
-            try:
-                new_date_str = request.form.get("appoint_date")
-                new_time_str = request.form.get("appoint_time")
-                
-                if not all([new_date_str, new_time_str]):
-                    flash("Date and time are required.", "warning")
-                    return redirect(f"/patient/appointments/{appointment_id}/reschedule")
-                
-                new_date = datetime.strptime(new_date_str, "%Y-%m-%d").date()
-                new_time = datetime.strptime(new_time_str, "%H:%M").time()
-                
-                if new_date < date.today():
-                    flash("Cannot reschedule to a past date.", "warning")
-                    return redirect(f"/patient/appointments/{appointment_id}/reschedule")
-                
-                # Check doctor availability (excluding current appointment)
-                is_available, message = check_doctor_availability(
-                    session, 
-                    appointment.docid, 
-                    new_date, 
-                    new_time, 
-                    exclude_appointment_id=appointment_id
-                )
-                if not is_available:
-                    flash(message, "warning")
-                    return redirect(f"/patient/appointments/{appointment_id}/reschedule")
-                
-                appointment.appoint_date = new_date
-                appointment.appoint_time = new_time
-                session.commit()
-                
-                flash("Appointment rescheduled successfully!", "success")
-                return redirect("/patient/appointments")
-                
-            except ValueError:
-                flash("Invalid date or time format.", "warning")
-                return redirect(f"/patient/appointments/{appointment_id}/reschedule")
-            except Exception as e:
-                session.rollback()
-                print("[ERROR] patient_reschedule_appointment:", e)
-                flash("Error rescheduling appointment.", "danger")
-                return redirect("/patient/appointments")
-        
-        return render_template("patient_appointment_reschedule.html", appointment=appointment, date=date, timedelta=timedelta)
-        
+            return jsonify({
+                "success": False,
+                "message": "Only booked appointments can be rescheduled"
+            }), 400
+
+        try:
+            new_date = datetime.strptime(new_date_str, "%Y-%m-%d").date()
+            new_time = datetime.strptime(new_time_str, "%H:%M").time()
+        except:
+            return jsonify({
+                "success": False,
+                "message": "Invalid date or time format"
+            }), 400
+
+        if new_date < date.today():
+            return jsonify({
+                "success": False,
+                "message": "Cannot reschedule to a past date"
+            }), 400
+
+        existing = session.query(Appointment).filter(
+            Appointment.docid == appointment.docid,
+            Appointment.appoint_date == new_date,
+            Appointment.appoint_time == new_time,
+            Appointment.status == "Booked",
+            Appointment.id != appointment_id
+        ).first()
+
+        if existing:
+            return jsonify({
+                "success": False,
+                "message": "Time slot already booked"
+            }), 409
+
+        appointment.appoint_date = new_date
+        appointment.appoint_time = new_time
+
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Appointment rescheduled successfully"
+        }), 200
+
     except Exception as e:
+        session.rollback()
         print("[ERROR] patient_reschedule_appointment:", e)
-        flash("Error loading appointment.", "danger")
-        return redirect("/patient/appointments")
+
+        return jsonify({
+            "success": False,
+            "message": "Error rescheduling appointment"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/patient/appointments/<int:appointment_id>/cancel", methods=["POST"])
+@app.route("/api/patient/appointments/<int:appointment_id>/cancel", methods=["PUT"])
 @login_required
 def patient_cancel_appointment(appointment_id):
+
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
         if not patient:
-            flash("Patient profile not found.", "danger")
-            return redirect("/login")
-        
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
+
         appointment = session.query(Appointment).filter_by(
             id=appointment_id,
             patid=patient.id
         ).first()
-        
+
         if not appointment:
-            flash("Appointment not found.", "danger")
-            return redirect("/patient/appointments")
-        
+            return jsonify({
+                "success": False,
+                "message": "Appointment not found"
+            }), 404
+
         if appointment.status != "Booked":
-            flash("Only booked appointments can be cancelled.", "warning")
-            return redirect("/patient/appointments")
-        
+            return jsonify({
+                "success": False,
+                "message": "Only booked appointments can be cancelled"
+            }), 400
+
         appointment.status = "Cancelled"
         session.commit()
-        
-        flash("Appointment cancelled successfully.", "success")
-        return redirect("/patient/appointments")
-        
+
+        return jsonify({
+            "success": True,
+            "message": "Appointment cancelled successfully"
+        }), 200
+
     except Exception as e:
         session.rollback()
         print("[ERROR] patient_cancel_appointment:", e)
-        flash("Error cancelling appointment.", "danger")
-        return redirect("/patient/appointments")
+
+        return jsonify({
+            "success": False,
+            "message": "Error cancelling appointment"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/patient/appointments/<int:appointment_id>/view")
+@app.route("/api/patient/appointments/<int:appointment_id>", methods=["GET"])
 @login_required
 def patient_view_appointment(appointment_id):
+
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
         if not patient:
-            flash("Patient profile not found.", "danger")
-            return redirect("/login")
-        
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
+
         appointment = session.query(Appointment).filter_by(
             id=appointment_id,
             patid=patient.id
         ).first()
-        
+
         if not appointment:
-            flash("Appointment not found.", "danger")
-            return redirect("/patient/appointments")
-        
-        return render_template("patient_appointment_view.html", appointment=appointment)
-        
+            return jsonify({
+                "success": False,
+                "message": "Appointment not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "appointment": {
+                "id": appointment.id,
+                "appointment_number": appointment.appointment_number,
+                "doctor_name": appointment.doctor.user.name if appointment.doctor and appointment.doctor.user else "N/A",
+                "date": appointment.appoint_date.strftime("%Y-%m-%d") if appointment.appoint_date else None,
+                "time": appointment.appoint_time.strftime("%H:%M") if appointment.appoint_time else None,
+                "status": appointment.status,
+                "reason": appointment.reason_for_visit or "",
+                "diagnosis": appointment.treatment.diagnosis if hasattr(appointment, "treatment") and appointment.treatment else None,
+                "prescription": appointment.treatment.prescription if hasattr(appointment, "treatment") and appointment.treatment else None,
+                "notes": appointment.treatment.notes if hasattr(appointment, "treatment") and appointment.treatment else None
+            }
+        }), 200
+
     except Exception as e:
         print("[ERROR] patient_view_appointment:", e)
-        flash("Error loading appointment details.", "danger")
-        return redirect("/patient/appointments")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading appointment details"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/patient/appointments/<int:appointment_id>/details")
+@app.route("/api/patient/appointments/<int:appointment_id>/details", methods=["GET"])
 @login_required
 def patient_appointment_details(appointment_id):
+
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
         if not patient:
-            flash("Patient profile not found.", "danger")
-            return redirect("/login")
-        
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
+
         appointment = session.query(Appointment).filter_by(
             id=appointment_id,
             patid=patient.id
         ).first()
-        
+
         if not appointment:
-            flash("Appointment not found.", "danger")
-            return redirect("/patient/appointments")
-        
-        return render_template("patient_appointment_view.html", appointment=appointment)
-        
+            return jsonify({
+                "success": False,
+                "message": "Appointment not found"
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "appointment": {
+                "id": appointment.id,
+                "appointment_number": appointment.appointment_number,
+                "doctor_name": appointment.doctor.user.name if appointment.doctor and appointment.doctor.user else "N/A",
+                "doctor_specialization": appointment.doctor.specialization if appointment.doctor else "N/A",
+                "date": appointment.appoint_date.strftime("%Y-%m-%d") if appointment.appoint_date else None,
+                "time": appointment.appoint_time.strftime("%H:%M") if appointment.appoint_time else None,
+                "status": appointment.status,
+                "reason": appointment.reason_for_visit or "",
+                "diagnosis": appointment.treatment.diagnosis if hasattr(appointment, "treatment") and appointment.treatment else None,
+                "prescription": appointment.treatment.prescription if hasattr(appointment, "treatment") and appointment.treatment else None,
+                "notes": appointment.treatment.notes if hasattr(appointment, "treatment") and appointment.treatment else None
+            }
+        }), 200
+
     except Exception as e:
         print("[ERROR] patient_appointment_details:", e)
-        flash("Error loading appointment details.", "danger")
-        return redirect("/patient/appointments")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading appointment details"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/patient/treatments")
+@app.route("/api/patient/treatments", methods=["GET"])
 @login_required
 def patient_treatment_history():
+
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
         if not patient:
-            flash("Patient profile not found.", "danger")
-            return redirect("/login")
-        
-        treatments = session.query(Treatment).filter_by(patid=patient.id).order_by(
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
+
+        treatments = session.query(Treatment).filter_by(
+            patid=patient.id
+        ).order_by(
             Treatment.treatment_date.desc()
         ).all()
-        
-        return render_template("patient_treatment_history.html", treatments=treatments)
-        
+
+        treatments_list = [
+            {
+                "id": t.id,
+                "appointment_id": t.appointment_id,
+                "doctor_name": t.appointment.doctor.user.name if t.appointment and t.appointment.doctor and t.appointment.doctor.user else "N/A",
+                "date": t.treatment_date.strftime("%Y-%m-%d") if t.treatment_date else None,
+                "diagnosis": t.diagnosis or "",
+                "prescription": t.prescription or "",
+                "notes": t.notes or ""
+            }
+            for t in treatments
+        ]
+
+        return jsonify({
+            "success": True,
+            "treatments": treatments_list
+        }), 200
+
     except Exception as e:
         print("[ERROR] patient_treatment_history:", e)
-        flash("Error loading treatment history.", "danger")
-        return redirect("/patient/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading treatment history"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/patient/history")
+@app.route("/api/patient/history", methods=["GET"])
 @login_required
 def patient_medical_history():
+
     if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
         if not patient:
-            flash("Patient profile not found.", "danger")
-            return redirect("/login")
-        
-        # Get medical history
-        medical_history = session.query(MedicalHistory).filter_by(patid=patient.id).first()
-        
-        # Get all treatments
-        treatments = session.query(Treatment).filter_by(patid=patient.id).order_by(
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
+
+        medical_history = session.query(MedicalHistory).filter_by(
+            patid=patient.id
+        ).first()
+
+        treatments = session.query(Treatment).filter_by(
+            patid=patient.id
+        ).order_by(
             Treatment.treatment_date.desc()
         ).all()
-        
-        # Get all appointments
-        appointments = session.query(Appointment).filter_by(patid=patient.id).order_by(
+
+        appointments = session.query(Appointment).filter_by(
+            patid=patient.id
+        ).order_by(
             Appointment.appoint_date.desc()
         ).all()
-        
-        return render_template(
-            "patient_medical_history.html",
-            medical_history=medical_history,
-            treatments=treatments,
-            appointments=appointments,
-            patient=patient
-        )
-        
+
+        treatments_list = [
+            {
+                "id": t.id,
+                "appointment_id": t.appointment_id,
+                "doctor_name": t.appointment.doctor.user.name if t.appointment and t.appointment.doctor and t.appointment.doctor.user else "N/A",
+                "date": t.treatment_date.strftime("%Y-%m-%d") if t.treatment_date else None,
+                "diagnosis": t.diagnosis or "",
+                "prescription": t.prescription or "",
+                "notes": t.notes or ""
+            }
+            for t in treatments
+        ]
+
+        appointments_list = [
+            {
+                "id": a.id,
+                "doctor_name": a.doctor.user.name if a.doctor and a.doctor.user else "N/A",
+                "date": a.appoint_date.strftime("%Y-%m-%d") if a.appoint_date else None,
+                "time": a.appoint_time.strftime("%H:%M") if a.appoint_time else None,
+                "status": a.status,
+                "reason": a.reason_for_visit or ""
+            }
+            for a in appointments
+        ]
+
+        return jsonify({
+            "success": True,
+            "patient": {
+                "id": patient.id,
+                "name": patient.user.name if hasattr(patient, "user") and patient.user else ""
+            },
+            "medical_history": {
+                "allergies": medical_history.allergies if medical_history else "",
+                "chronic_conditions": medical_history.chronic_conditions if medical_history else "",
+                "medications": medical_history.medications if medical_history else "",
+                "notes": medical_history.notes if medical_history else ""
+            },
+            "treatments": treatments_list,
+            "appointments": appointments_list
+        }), 200
+
     except Exception as e:
         print("[ERROR] patient_medical_history:", e)
-        flash("Error loading medical history.", "danger")
-        return redirect("/patient/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading medical history"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/admin/addDoctor", methods=["GET", "POST"])
+@app.route("/api/admin/doctors", methods=["POST"])
 @login_required
 def add_doctor():
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
+
     try:
-        departments = session.query(Department).order_by(Department.name).all()
+        data = request.get_json()
 
-        if request.method == "POST":
-            name = request.form.get("name", "").strip()
-            username = request.form.get("username", "").strip()
-            password = request.form.get("password", "").strip()
-            gender = request.form.get("gender")
-            department_id = request.form.get("department")
-            license_number = request.form.get("license_number")
-            specialization = request.form.get("specialization")
-            qualification = request.form.get("qualification")
-            experience = request.form.get("experience")
+        name = data.get("name", "").strip()
+        username = data.get("username", "").strip()
+        password = data.get("password", "").strip()
+        gender = data.get("gender")
+        department_id = data.get("department")
+        license_number = data.get("license_number")
+        specialization = data.get("specialization")
+        qualification = data.get("qualification")
+        experience = data.get("experience", 0)
 
-            # Validate inputs
-            if not all([name, username, password, gender, department_id, license_number, specialization, qualification]):
-                flash("Please fill in all required fields.", "danger")
-                return render_template("register.html", departments=departments,role="doctor")
+        if not all([name, username, password, gender, department_id, license_number, specialization, qualification]):
+            return jsonify({
+                "success": False,
+                "message": "All required fields must be provided"
+            }), 400
 
-            # Check duplicates
-            if qualification<0:
-                flash("Qualification cannot be negative", "danger")
-                return render_template("register.html", departments=departments,role="doctor")
-            existing_user = session.query(User).filter_by(username=username).first()
-            existing_license = session.query(Doctor).filter_by(license_number=license_number).first()
-            if existing_user:
-                flash("Username already exists.", "danger")
-                return render_template("register.html", departments=departments,role="doctor")
-            if existing_license:
-                flash("License number already registered.", "danger")
-                return render_template("register.html", departments=departments)
+        try:
+            experience = int(experience)
+            if experience < 0:
+                return jsonify({
+                    "success": False,
+                    "message": "Experience cannot be negative"
+                }), 400
+        except:
+            return jsonify({
+                "success": False,
+                "message": "Invalid experience value"
+            }), 400
 
-            # Create user
-            hashed_password = generate_password_hash(password)
-            user = User(username=username, password=hashed_password, name=name, role="doctor")
-            session.add(user)
-            session.commit()
+        existing_user = session.query(User).filter_by(username=username).first()
+        if existing_user:
+            return jsonify({
+                "success": False,
+                "message": "Username already exists"
+            }), 400
 
-            # Get the admin safely inside the same session
-            admin_record = session.query(Admin).filter_by(uid=current_user.id).first()
+        existing_license = session.query(Doctor).filter_by(license_number=license_number).first()
+        if existing_license:
+            return jsonify({
+                "success": False,
+                "message": "License number already registered"
+            }), 400
 
-            # Create doctor record
-            new_doctor = Doctor(
-                uid=user.id,
-                depid=int(department_id),
-                license_number=license_number,
-                specialization=specialization,
-                qualification=qualification,
-                experience=int(experience) if experience else 0,
-                gender=gender,
-                admin_id=admin_record.id if admin_record else None
-            )
-            session.add(new_doctor)
-            session.commit()
+        hashed_password = generate_password_hash(password)
 
-            flash("Doctor added successfully!", "success")
-            return redirect("/admin/dashboard")
+        user = User(
+            username=username,
+            password=hashed_password,
+            name=name,
+            role="doctor"
+        )
 
-        return render_template("register.html", departments=departments,role="doctor")
+        session.add(user)
+        session.flush()
+
+        admin_record = session.query(Admin).filter_by(uid=current_user.id).first()
+
+        new_doctor = Doctor(
+            uid=user.id,
+            depid=int(department_id),
+            license_number=license_number,
+            specialization=specialization,
+            qualification=qualification,
+            experience=experience,
+            gender=gender,
+            admin_id=admin_record.id if admin_record else None
+        )
+
+        session.add(new_doctor)
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Doctor added successfully",
+            "doctor": {
+                "id": new_doctor.id,
+                "name": name,
+                "username": username,
+                "specialization": specialization
+            }
+        }), 201
+
     except Exception as e:
         session.rollback()
         print(f"[ERROR] Add Doctor failed: {e}")
-        flash("Error adding doctor. Please try again.", "danger")
-        return render_template("register.html", departments=[],role="doctor")
+
+        return jsonify({
+            "success": False,
+            "message": "Error adding doctor"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/admin/doctors")
+@app.route("/api/admin/doctors", methods=["GET"])
 @login_required
 def admin_doctors():
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
-        doctors = session.query(Doctor).join(User).join(Department).order_by(Doctor.id.desc()).all()
+        doctors = session.query(Doctor, User, Department).join(
+            User, Doctor.uid == User.id
+        ).join(
+            Department, Doctor.depid == Department.id
+        ).order_by(Doctor.id.desc()).all()
+
+        doctors_list = [
+            {
+                "id": doctor.id,
+                "name": user.name,
+                "username": user.username,
+                "department": department.name,
+                "specialization": doctor.specialization,
+                "qualification": doctor.qualification,
+                "experience": doctor.experience,
+                "license_number": doctor.license_number,
+                "gender": doctor.gender
+            }
+            for doctor, user, department in doctors
+        ]
+
         departments = session.query(Department).order_by(Department.name).all()
-        return render_template("admin_doctors.html", doctors=doctors, departments=departments)
+        departments_list = [
+            {
+                "id": d.id,
+                "name": d.name
+            }
+            for d in departments
+        ]
+
+        return jsonify({
+            "success": True,
+            "doctors": doctors_list,
+            "departments": departments_list
+        }), 200
+
     except Exception as e:
         print(f"[ERROR] Admin doctors: {e}")
-        flash("Error loading doctors.", "danger")
-        return redirect("/admin/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading doctors"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/admin/doctor/update/<int:doctor_id>", methods=["POST"])
+@app.route("/api/admin/doctors/<int:doctor_id>", methods=["PUT"])
 @login_required
 def update_doctor(doctor_id):
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
+        data = request.get_json()
+
         doctor = session.query(Doctor).filter_by(id=doctor_id).first()
+
         if not doctor:
-            flash("Doctor not found.", "danger")
-            return redirect("/admin/doctors")
-        
-        # Update doctor details
-        doctor.specialization = request.form.get("specialization", doctor.specialization)
-        doctor.qualification = request.form.get("qualification", doctor.qualification)
-        doctor.experience = int(request.form.get("experience", doctor.experience))
-        doctor.depid = int(request.form.get("department", doctor.depid))
-        
-        # Update user name if provided
-        if request.form.get("name"):
-            doctor.user.name = request.form.get("name")
-        
+            return jsonify({
+                "success": False,
+                "message": "Doctor not found"
+            }), 404
+
+        specialization = data.get("specialization")
+        qualification = data.get("qualification")
+        experience = data.get("experience")
+        department = data.get("department")
+        name = data.get("name")
+
+        if specialization:
+            doctor.specialization = specialization
+
+        if qualification:
+            doctor.qualification = qualification
+
+        if experience is not None:
+            try:
+                exp_val = int(experience)
+                if exp_val < 0:
+                    return jsonify({
+                        "success": False,
+                        "message": "Experience cannot be negative"
+                    }), 400
+                doctor.experience = exp_val
+            except:
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid experience value"
+                }), 400
+
+        if department:
+            doctor.depid = int(department)
+
+        if name and doctor.user:
+            doctor.user.name = name
+
         session.commit()
-        flash("Doctor updated successfully!", "success")
+
+        return jsonify({
+            "success": True,
+            "message": "Doctor updated successfully"
+        }), 200
+
     except Exception as e:
         session.rollback()
         print(f"[ERROR] Update doctor: {e}")
-        flash("Error updating doctor.", "danger")
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating doctor"
+        }), 500
+
     finally:
         session.close()
-    
-    return redirect("/admin/doctors")
 
 
-@app.route("/admin/doctor/toggle/<int:doctor_id>/<string:update_status>", methods=["POST"])
+@app.route("/api/admin/doctors/<int:doctor_id>/status", methods=["PUT"])
 @login_required
-def toggle_doctor_status(doctor_id, update_status):
-    if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
-    session = SessionLocal()
-    try:
-        doctor = session.query(Doctor).filter_by(id=doctor_id).first()
-        if not doctor:
-            flash("Doctor not found.", "danger")
-            return redirect("/admin/doctors")
+def toggle_doctor_status(doctor_id):
 
-        # Normalize the input
-        update_status = update_status.lower().strip()
-        valid_statuses = ["active", "inactive"]
-        if update_status not in valid_statuses:
-            flash("Invalid status value.", "danger")
-            return redirect("/admin/doctors")
+    if current_user.role != "admin":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        data = request.get_json()
+        update_status = data.get("status", "").lower().strip()
+
+        if update_status not in ["active", "inactive"]:
+            return jsonify({
+                "success": False,
+                "message": "Invalid status value"
+            }), 400
+
+        doctor = session.query(Doctor).filter_by(id=doctor_id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor not found"
+            }), 404
 
         if update_status == "inactive":
-            # Deactivate doctor
             if doctor.status == "inactive":
-                flash(f"Doctor {doctor.user.name} is already inactive.", "warning")
-            else:
-                doctor.status = "inactive"
+                return jsonify({
+                    "success": False,
+                    "message": "Doctor is already inactive"
+                }), 400
+
+            doctor.status = "inactive"
+            if doctor.user:
                 doctor.user.is_active = False
-                flash(f"Doctor {doctor.user.name} has been deactivated.", "warning")
 
         elif update_status == "active":
-            # Activate doctor
             if doctor.status == "active":
-                flash(f"Doctor {doctor.user.name} is already active.", "info")
-            else:
-                doctor.status = "active"
+                return jsonify({
+                    "success": False,
+                    "message": "Doctor is already active"
+                }), 400
+
+            doctor.status = "active"
+            if doctor.user:
                 doctor.user.is_active = True
-                flash(f"Doctor {doctor.user.name} has been reactivated.", "success")
 
         session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Doctor status updated to {update_status}"
+        }), 200
+
     except Exception as e:
         session.rollback()
         print(f"[ERROR] Toggle doctor status: {e}")
-        flash("Error updating doctor status.", "danger")
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating doctor status"
+        }), 500
+
     finally:
         session.close()
-    
-    return redirect("/admin/doctors")
 
 
 
-@app.route("/admin/patients")
+@app.route("/api/admin/patients", methods=["GET"])
 @login_required
 def admin_patients():
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
-        patients = session.query(Patient).join(User).order_by(Patient.id.desc()).all()
-        return render_template("admin_patients.html", patients=patients)
+        patients = session.query(Patient, User).join(
+            User, Patient.uid == User.id
+        ).order_by(Patient.id.desc()).all()
+
+        patients_list = [
+            {
+                "id": patient.id,
+                "name": user.name,
+                "username": user.username,
+                "gender": patient.gender,
+                "dob": patient.dob.strftime("%Y-%m-%d") if patient.dob else None,
+                "blood_group": patient.blood_group,
+                "address": patient.address,
+                "is_active": patient.is_active
+            }
+            for patient, user in patients
+        ]
+
+        return jsonify({
+            "success": True,
+            "patients": patients_list
+        }), 200
+
     except Exception as e:
         print(f"[ERROR] Admin patients: {e}")
-        flash("Error loading patients.", "danger")
-        return redirect("/admin/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading patients"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/admin/patient/toggle/<int:patient_id>", methods=["POST"])
+@app.route("/api/admin/patients/<int:patient_id>/toggle", methods=["PUT"])
 @login_required
 def toggle_patient_status(patient_id):
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(id=patient_id).first()
+
         if not patient:
-            flash("Patient not found.", "danger")
-            return redirect("/admin/patients")
-        
-        # Toggle status
+            return jsonify({
+                "success": False,
+                "message": "Patient not found"
+            }), 404
+
         patient.is_active = not patient.is_active
-        patient.user.is_active = patient.is_active
-        
-        status_text = "activated" if patient.is_active else "deactivated"
-        flash(f"Patient {patient.user.name} has been {status_text}.", "success" if patient.is_active else "warning")
-        
+
+        if patient.user:
+            patient.user.is_active = patient.is_active
+
         session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Patient {'activated' if patient.is_active else 'deactivated'} successfully",
+            "is_active": patient.is_active
+        }), 200
+
     except Exception as e:
         session.rollback()
         print(f"[ERROR] Toggle patient status: {e}")
-        flash("Error updating patient status.", "danger")
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating patient status"
+        }), 500
+
     finally:
         session.close()
-    
-    return redirect("/admin/patients")
 
 
-@app.route("/admin/appointments")
+@app.route("/api/admin/appointments", methods=["GET"])
 @login_required
 def admin_appointments():
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
-        # Get filter parameters
         filter_status = request.args.get("status", "all")
         filter_date = request.args.get("date", "all")
-        
-        query = session.query(Appointment).join(Doctor).join(Patient)
-        
-        # Apply status filter
+
+        query = session.query(Appointment).join(
+            Doctor, Appointment.docid == Doctor.id
+        ).join(
+            Patient, Appointment.patid == Patient.id
+        )
+
         if filter_status != "all":
             query = query.filter(Appointment.status == filter_status)
-        
-        # Apply date filter
+
         today = date.today()
         if filter_date == "upcoming":
             query = query.filter(Appointment.appoint_date >= today)
         elif filter_date == "past":
             query = query.filter(Appointment.appoint_date < today)
-        
-        appointments = query.order_by(Appointment.appoint_date.desc(), Appointment.appoint_time.desc()).all()
-        
-        return render_template("admin_appointments.html", 
-                             appointments=appointments,
-                             filter_status=filter_status,
-                             filter_date=filter_date)
+
+        appointments = query.order_by(
+            Appointment.appoint_date.desc(),
+            Appointment.appoint_time.desc()
+        ).all()
+
+        appointments_list = [
+            {
+                "id": apt.id,
+                "appointment_number": apt.appointment_number,
+                "doctor_name": apt.doctor.user.name if apt.doctor and apt.doctor.user else "N/A",
+                "patient_name": apt.patient.user.name if apt.patient and apt.patient.user else "N/A",
+                "date": apt.appoint_date.strftime("%Y-%m-%d") if apt.appoint_date else None,
+                "time": apt.appoint_time.strftime("%H:%M") if apt.appoint_time else None,
+                "status": apt.status,
+                "reason": apt.reason_for_visit or ""
+            }
+            for apt in appointments
+        ]
+
+        return jsonify({
+            "success": True,
+            "appointments": appointments_list,
+            "filters": {
+                "status": filter_status,
+                "date": filter_date
+            }
+        }), 200
+
     except Exception as e:
         print(f"[ERROR] Admin appointments: {e}")
-        flash("Error loading appointments.", "danger")
-        return redirect("/admin/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading appointments"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/admin/search", methods=["GET"])
+@app.route("/api/admin/search", methods=["GET"])
 @login_required
 def admin_search():
-    if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    return render_template("admin_search.html")
 
-
-@app.route("/admin/search/results", methods=["GET", "POST"])
-@login_required
-def admin_search_results():
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
-        search_type = request.form.get("search_type") or request.args.get("search_type", "")
-        search_term = request.form.get("search_term") or request.args.get("search_term", "")
-        
-        results = []
-        
-        if search_type and search_term:
-            search_pattern = f"%{search_term}%"
-            
-            if search_type == "doctor":
-                doctors = session.query(Doctor).join(User).join(Department).filter(
-                    (User.name.ilike(search_pattern)) |
-                    (Doctor.specialization.ilike(search_pattern)) |
-                    (Department.name.ilike(search_pattern)) |
-                    (Doctor.license_number.ilike(search_pattern))
-                ).all()
-                
-                results = [{
-                    "id": d.id,
-                    "name": d.user.name,
-                    "specialization": d.specialization,
-                    "qualification": d.qualification,
-                    "experience": d.experience,
-                    "status": d.status,
-                    "department": d.department.name if d.department else "N/A"
-                } for d in doctors]
-                
-            elif search_type == "patient":
-                patients = session.query(Patient).join(User).filter(
-                    (User.name.ilike(search_pattern)) |
-                    (User.username.ilike(search_pattern)) |
-                    (Patient.blood_group.ilike(search_pattern))
-                ).all()
-                
-                results = [{
-                    "id": p.id,
-                    "patient_id": f"PAT{p.id:06d}",
-                    "name": p.user.name,
-                    "gender": p.gender,
-                    "blood_group": p.blood_group,
-                    "contact": p.user.username,
-                    "registered_date": p.user.created_at.strftime("%Y-%m-%d") if p.user.created_at else "N/A",
-                    "is_active": p.is_active
-                } for p in patients]
-                
-            elif search_type == "appointment":
-                appointments = session.query(Appointment).join(Doctor).join(Patient).filter(
-                    (Appointment.appointment_number.ilike(search_pattern)) |
-                    (User.name.ilike(search_pattern))
-                ).all()
-                
-                results = [{
-                    "id": a.id,
-                    "appointment_number": a.appointment_number,
-                    "patient_name": a.patient.user.name,
-                    "doctor_name": a.doctor.user.name,
-                    "date": a.appoint_date.strftime("%Y-%m-%d"),
-                    "time": a.appoint_time.strftime("%H:%M"),
-                    "status": a.status
-                } for a in appointments]
-        
-        return render_template("admin_search_results.html",
-                             results=results,
-                             search_type=search_type,
-                             search_term=search_term)
+        query_param = request.args.get("query", "").strip()
+
+        doctors = session.query(Doctor, User, Department).join(
+            User, Doctor.uid == User.id
+        ).outerjoin(
+            Department, Doctor.depid == Department.id
+        )
+
+        patients = session.query(Patient, User).join(
+            User, Patient.uid == User.id
+        )
+
+        if query_param:
+            doctors = doctors.filter(
+                (User.name.ilike(f"%{query_param}%")) |
+                (Doctor.specialization.ilike(f"%{query_param}%"))
+            )
+
+            patients = patients.filter(
+                (User.name.ilike(f"%{query_param}%")) |
+                (User.username.ilike(f"%{query_param}%"))
+            )
+
+        doctors_list = [
+            {
+                "id": d.id,
+                "name": u.name,
+                "username": u.username,
+                "department": dept.name if dept else "General",
+                "specialization": d.specialization,
+                "status": d.status
+            }
+            for d, u, dept in doctors.all()
+        ]
+
+        patients_list = [
+            {
+                "id": p.id,
+                "name": u.name,
+                "username": u.username,
+                "gender": p.gender,
+                "is_active": p.is_active
+            }
+            for p, u in patients.all()
+        ]
+
+        return jsonify({
+            "success": True,
+            "query": query_param,
+            "doctors": doctors_list,
+            "patients": patients_list
+        }), 200
+
     except Exception as e:
         print(f"[ERROR] Admin search: {e}")
-        flash("Error performing search.", "danger")
-        return redirect("/admin/search")
+
+        return jsonify({
+            "success": False,
+            "message": "Error performing search"
+        }), 500
+
     finally:
         session.close()
 
-
-@app.route("/admin/departments", methods=["GET"])
+@app.route("/api/admin/departments", methods=["GET"])
 @login_required
 def admin_departments():
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         departments = session.query(Department).order_by(Department.name).all()
-        
-        # Get doctor count for each department
-        dept_stats = []
-        for dept in departments:
-            doctor_count = session.query(Doctor).filter_by(depid=dept.id).count()
-            dept_stats.append({
+
+        dept_list = [
+            {
                 "id": dept.id,
                 "name": dept.name,
                 "description": dept.description,
-                "doctor_count": doctor_count,
-                "created_at": dept.created_at
-            })
-        
-        return render_template("admin_departments.html", departments=dept_stats)
+                "doctor_count": session.query(Doctor).filter_by(depid=dept.id).count(),
+                "created_at": dept.created_at.strftime("%Y-%m-%d") if dept.created_at else None
+            }
+            for dept in departments
+        ]
+
+        return jsonify({
+            "success": True,
+            "departments": dept_list
+        }), 200
+
     except Exception as e:
         print(f"[ERROR] Admin departments: {e}")
-        flash("Error loading departments.", "danger")
-        return redirect("/admin/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading departments"
+        }), 500
+
     finally:
         session.close()
 
-
-@app.route("/admin/department/add", methods=["POST"])
+@app.route("/api/admin/departments", methods=["POST"])
 @login_required
 def add_department():
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
-        name = request.form.get("name", "").strip()
-        description = request.form.get("description", "").strip()
-        
+        data = request.get_json()
+
+        name = data.get("name", "").strip()
+        description = data.get("description", "").strip()
+
         if not name:
-            flash("Department name is required.", "danger")
-            return redirect("/admin/departments")
-        
-        # Check if department already exists
+            return jsonify({
+                "success": False,
+                "message": "Department name is required"
+            }), 400
+
         existing = session.query(Department).filter_by(name=name).first()
         if existing:
-            flash("Department already exists.", "danger")
-            return redirect("/admin/departments")
-        
+            return jsonify({
+                "success": False,
+                "message": "Department already exists"
+            }), 400
+
         new_dept = Department(name=name, description=description)
         session.add(new_dept)
         session.commit()
-        
-        flash(f"Department '{name}' added successfully!", "success")
+
+        return jsonify({
+            "success": True,
+            "message": "Department added successfully",
+            "department": {
+                "id": new_dept.id,
+                "name": new_dept.name
+            }
+        }), 201
+
     except Exception as e:
         session.rollback()
         print(f"[ERROR] Add department: {e}")
-        flash("Error adding department.", "danger")
+
+        return jsonify({
+            "success": False,
+            "message": "Error adding department"
+        }), 500
+
     finally:
         session.close()
-    
-    return redirect("/admin/departments")
 
-
-@app.route("/admin/department/update/<int:dept_id>", methods=["POST"])
+@app.route("/api/admin/departments/<int:dept_id>", methods=["PUT"])
 @login_required
 def update_department(dept_id):
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
+        data = request.get_json()
+
         dept = session.query(Department).filter_by(id=dept_id).first()
+
         if not dept:
-            flash("Department not found.", "danger")
-            return redirect("/admin/departments")
-        
-        name = request.form.get("name", "").strip()
-        description = request.form.get("description", "").strip()
-        
+            return jsonify({
+                "success": False,
+                "message": "Department not found"
+            }), 404
+
+        name = data.get("name")
+        description = data.get("description")
+
         if name:
-            dept.name = name
+            dept.name = name.strip()
+
         if description:
-            dept.description = description
-        
+            dept.description = description.strip()
+
         session.commit()
-        flash("Department updated successfully!", "success")
+
+        return jsonify({
+            "success": True,
+            "message": "Department updated successfully"
+        }), 200
+
     except Exception as e:
         session.rollback()
         print(f"[ERROR] Update department: {e}")
-        flash("Error updating department.", "danger")
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating department"
+        }), 500
+
     finally:
         session.close()
-    
-    return redirect("/admin/departments")
+        
 
-
-@app.route("/admin/reports", methods=["GET"])
+@app.route("/api/admin/reports", methods=["GET"])
 @login_required
 def admin_reports():
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
-        # Get statistics
         total_doctors = session.query(Doctor).count()
         active_doctors = session.query(Doctor).filter_by(status="active").count()
         inactive_doctors = total_doctors - active_doctors
-        
+
         total_patients = session.query(Patient).count()
         active_patients = session.query(Patient).filter_by(is_active=True).count()
         inactive_patients = total_patients - active_patients
-        
+
         total_appointments = session.query(Appointment).count()
         booked_appointments = session.query(Appointment).filter_by(status="Booked").count()
         completed_appointments = session.query(Appointment).filter_by(status="Completed").count()
         cancelled_appointments = session.query(Appointment).filter_by(status="Cancelled").count()
-        
-        # Department statistics
+
         departments = session.query(Department).all()
-        dept_stats = []
-        for dept in departments:
-            doctor_count = session.query(Doctor).filter_by(depid=dept.id).count()
-            dept_stats.append({
+        dept_stats = [
+            {
                 "name": dept.name,
-                "doctor_count": doctor_count
-            })
-        
-        # Recent activity
+                "doctor_count": session.query(Doctor).filter_by(depid=dept.id).count()
+            }
+            for dept in departments
+        ]
+
         recent_doctors = session.query(Doctor).join(User).order_by(User.created_at.desc()).limit(5).all()
         recent_patients = session.query(Patient).join(User).order_by(User.created_at.desc()).limit(5).all()
         recent_appointments = session.query(Appointment).order_by(Appointment.id.desc()).limit(5).all()
-        
-        return render_template("admin_reports.html",
-                             total_doctors=total_doctors,
-                             active_doctors=active_doctors,
-                             inactive_doctors=inactive_doctors,
-                             total_patients=total_patients,
-                             active_patients=active_patients,
-                             inactive_patients=inactive_patients,
-                             total_appointments=total_appointments,
-                             booked_appointments=booked_appointments,
-                             completed_appointments=completed_appointments,
-                             cancelled_appointments=cancelled_appointments,
-                             dept_stats=dept_stats,
-                             recent_doctors=recent_doctors,
-                             recent_patients=recent_patients,
-                             recent_appointments=recent_appointments)
+
+        recent_doctors_list = [
+            {
+                "id": d.id,
+                "name": d.user.name if d.user else "",
+                "created_at": d.user.created_at.strftime("%Y-%m-%d") if d.user and d.user.created_at else None
+            }
+            for d in recent_doctors
+        ]
+
+        recent_patients_list = [
+            {
+                "id": p.id,
+                "name": p.user.name if p.user else "",
+                "created_at": p.user.created_at.strftime("%Y-%m-%d") if p.user and p.user.created_at else None
+            }
+            for p in recent_patients
+        ]
+
+        recent_appointments_list = [
+            {
+                "id": a.id,
+                "appointment_number": a.appointment_number,
+                "doctor_name": a.doctor.user.name if a.doctor and a.doctor.user else "N/A",
+                "patient_name": a.patient.user.name if a.patient and a.patient.user else "N/A",
+                "date": a.appoint_date.strftime("%Y-%m-%d") if a.appoint_date else None,
+                "status": a.status
+            }
+            for a in recent_appointments
+        ]
+
+        return jsonify({
+            "success": True,
+            "stats": {
+                "doctors": {
+                    "total": total_doctors,
+                    "active": active_doctors,
+                    "inactive": inactive_doctors
+                },
+                "patients": {
+                    "total": total_patients,
+                    "active": active_patients,
+                    "inactive": inactive_patients
+                },
+                "appointments": {
+                    "total": total_appointments,
+                    "booked": booked_appointments,
+                    "completed": completed_appointments,
+                    "cancelled": cancelled_appointments
+                }
+            },
+            "departments": dept_stats,
+            "recent": {
+                "doctors": recent_doctors_list,
+                "patients": recent_patients_list,
+                "appointments": recent_appointments_list
+            }
+        }), 200
+
     except Exception as e:
         print(f"[ERROR] Admin reports: {e}")
-        flash("Error loading reports.", "danger")
-        return redirect("/admin/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading reports"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/admin/patient/<int:patient_id>/treatments")
+@app.route("/api/admin/patients/<int:patient_id>/treatments", methods=["GET"])
 @login_required
 def admin_patient_treatments(patient_id):
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(id=patient_id).first()
+
         if not patient:
-            flash("Patient not found.", "danger")
-            return redirect("/admin/patients")
-        
-        # Get all treatments for this patient
-        treatments = session.query(Treatment).filter_by(patid=patient_id).order_by(
+            return jsonify({
+                "success": False,
+                "message": "Patient not found"
+            }), 404
+
+        treatments = session.query(Treatment).filter_by(
+            patid=patient_id
+        ).order_by(
             Treatment.treatment_date.desc()
         ).all()
-        
-        # Get all appointments for this patient
-        appointments = session.query(Appointment).filter_by(patid=patient_id).order_by(
+
+        appointments = session.query(Appointment).filter_by(
+            patid=patient_id
+        ).order_by(
             Appointment.appoint_date.desc()
         ).all()
-        
-        # Get medical history
-        medical_history = session.query(MedicalHistory).filter_by(patid=patient_id).first()
-        
-        return render_template("admin_patient_treatments.html",
-                             patient=patient,
-                             treatments=treatments,
-                             appointments=appointments,
-                             medical_history=medical_history,
-                             calculate_age=calculate_age)
+
+        medical_history = session.query(MedicalHistory).filter_by(
+            patid=patient_id
+        ).first()
+
+        treatments_list = [
+            {
+                "id": t.id,
+                "doctor_name": t.appointment.doctor.user.name if t.appointment and t.appointment.doctor and t.appointment.doctor.user else "N/A",
+                "date": t.treatment_date.strftime("%Y-%m-%d") if t.treatment_date else None,
+                "diagnosis": t.diagnosis or "",
+                "prescription": t.prescription or "",
+                "notes": t.notes or ""
+            }
+            for t in treatments
+        ]
+
+        appointments_list = [
+            {
+                "id": a.id,
+                "appointment_number": a.appointment_number,
+                "doctor_name": a.doctor.user.name if a.doctor and a.doctor.user else "N/A",
+                "date": a.appoint_date.strftime("%Y-%m-%d") if a.appoint_date else None,
+                "time": a.appoint_time.strftime("%H:%M") if a.appoint_time else None,
+                "status": a.status
+            }
+            for a in appointments
+        ]
+
+        return jsonify({
+            "success": True,
+            "patient": {
+                "id": patient.id,
+                "name": patient.user.name if hasattr(patient, "user") and patient.user else ""
+            },
+            "medical_history": {
+                "allergies": medical_history.allergies if medical_history else "",
+                "chronic_conditions": medical_history.chronic_conditions if medical_history else "",
+                "medications": medical_history.medications if medical_history else "",
+                "notes": medical_history.notes if medical_history else ""
+            },
+            "treatments": treatments_list,
+            "appointments": appointments_list
+        }), 200
+
     except Exception as e:
         print(f"[ERROR] Admin patient treatments: {e}")
-        flash("Error loading patient treatments.", "danger")
-        return redirect("/admin/patients")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading patient treatments"
+        }), 500
+
     finally:
         session.close()
 
-
-@app.route("/admin/treatments")
+@app.route("/api/admin/treatments", methods=["GET"])
 @login_required
 def admin_treatments():
+
     if current_user.role != "admin":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
-        # Get all treatments with filters
         filter_doctor = request.args.get("doctor_id", "")
         filter_patient = request.args.get("patient_id", "")
-        
-        query = session.query(Treatment).join(Doctor).join(Patient)
-        
+
+        query = session.query(Treatment).join(
+            Doctor, Treatment.docid == Doctor.id
+        ).join(
+            Patient, Treatment.patid == Patient.id
+        )
+
         if filter_doctor:
-            query = query.filter(Treatment.docid == filter_doctor)
-        
+            query = query.filter(Treatment.docid == int(filter_doctor))
+
         if filter_patient:
-            query = query.filter(Treatment.patid == filter_patient)
-        
-        treatments = query.order_by(Treatment.treatment_date.desc()).all()
-        
-        # Get all doctors and patients for filters
-        doctors = session.query(Doctor).join(User).all()
-        patients = session.query(Patient).join(User).all()
-        
-        return render_template("admin_treatments.html",
-                             treatments=treatments,
-                             doctors=doctors,
-                             patients=patients,
-                             filter_doctor=filter_doctor,
-                             filter_patient=filter_patient)
+            query = query.filter(Treatment.patid == int(filter_patient))
+
+        treatments = query.order_by(
+            Treatment.treatment_date.desc()
+        ).all()
+
+        treatments_list = [
+            {
+                "id": t.id,
+                "doctor_id": t.docid,
+                "patient_id": t.patid,
+                "doctor_name": t.appointment.doctor.user.name if t.appointment and t.appointment.doctor and t.appointment.doctor.user else "N/A",
+                "patient_name": t.appointment.patient.user.name if t.appointment and t.appointment.patient and t.appointment.patient.user else "N/A",
+                "date": t.treatment_date.strftime("%Y-%m-%d") if t.treatment_date else None,
+                "diagnosis": t.diagnosis or "",
+                "prescription": t.prescription or "",
+                "notes": t.notes or ""
+            }
+            for t in treatments
+        ]
+
+        doctors = session.query(Doctor, User).join(
+            User, Doctor.uid == User.id
+        ).all()
+
+        doctors_list = [
+            {
+                "id": d.id,
+                "name": u.name
+            }
+            for d, u in doctors
+        ]
+
+        patients = session.query(Patient, User).join(
+            User, Patient.uid == User.id
+        ).all()
+
+        patients_list = [
+            {
+                "id": p.id,
+                "name": u.name
+            }
+            for p, u in patients
+        ]
+
+        return jsonify({
+            "success": True,
+            "treatments": treatments_list,
+            "filters": {
+                "doctor_id": filter_doctor,
+                "patient_id": filter_patient
+            },
+            "doctors": doctors_list,
+            "patients": patients_list
+        }), 200
+
     except Exception as e:
         print(f"[ERROR] Admin treatments: {e}")
-        flash("Error loading treatments.", "danger")
-        return redirect("/admin/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading treatments"
+        }), 500
+
     finally:
         session.close()
 
-@app.route("/doctor/appointments")
+@app.route("/api/doctor/appointments", methods=["GET"])
 @login_required
 def doctor_appointments():
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
+
     try:
         doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
         if not doctor:
-            flash("Doctor profile not found.", "danger")
-            return redirect("/login")
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
 
         today = date.today()
         next_week = today + timedelta(days=7)
 
         filter_option = request.args.get("filter", "all")
 
-        query = session.query(Appointment).join(Patient, Appointment.patid == Patient.id).filter(Appointment.docid == doctor.id)
+        query = session.query(Appointment).join(
+            Patient, Appointment.patid == Patient.id
+        ).filter(
+            Appointment.docid == doctor.id
+        )
 
         if filter_option == "today":
             query = query.filter(Appointment.appoint_date == today)
         elif filter_option == "upcoming":
             query = query.filter(Appointment.appoint_date.between(today, next_week))
 
-        appointments_query = query.order_by(Appointment.appoint_date.asc(), Appointment.appoint_time.asc()).all()
-
+        appointments_query = query.order_by(
+            Appointment.appoint_date.asc(),
+            Appointment.appoint_time.asc()
+        ).all()
 
         appointments = []
+
         for appt in appointments_query:
             patient = appt.patient
-            user = patient.user
+            user = patient.user if patient else None
 
             age = 0
-            if patient.dob:
+            if patient and patient.dob:
                 today_date = date.today()
                 age = today_date.year - patient.dob.year - (
                     (today_date.month, today_date.day) < (patient.dob.month, patient.dob.day)
@@ -1857,238 +2454,397 @@ def doctor_appointments():
             appointments.append({
                 "id": appt.id,
                 "appointment_number": appt.appointment_number,
-                "appointment_date": str(appt.appoint_date),
-                "appointment_time": str(appt.appoint_time),
+                "appointment_date": appt.appoint_date.strftime("%Y-%m-%d") if appt.appoint_date else None,
+                "appointment_time": appt.appoint_time.strftime("%H:%M") if appt.appoint_time else None,
                 "status": appt.status,
-                "reason": appt.reason_for_visit,
-                "patient_name": user.name if user else "Unknown",
-                "patient_gender": patient.gender or "-",
-                "patient_age": age,
-                "patient_blood_group": patient.blood_group or "-",
-                "patient_address": patient.address or "-",
+                "reason": appt.reason_for_visit or "",
+                "patient": {
+                    "name": user.name if user else "Unknown",
+                    "gender": patient.gender if patient else "-",
+                    "age": age,
+                    "blood_group": patient.blood_group if patient else "-",
+                    "address": patient.address if patient else "-"
+                }
             })
 
         total_appointments = len(appointments)
-        todays_appointments = sum(1 for a in appointments if a["appointment_date"] == str(today))
-        upcoming_appointments = sum(
-            1 for a in appointments
-            if str(today) <= a["appointment_date"] <= str(next_week) and a["status"] == "Booked"
+
+        todays_appointments = sum(
+            1 for a in appointments if a["appointment_date"] == today.strftime("%Y-%m-%d")
         )
 
-        return render_template(
-            "doctor_appointments.html",
-            appointments=appointments,
-            total_appointments=total_appointments,
-            todays_appointments=todays_appointments,
-            upcoming_appointments=upcoming_appointments,
+        upcoming_appointments = sum(
+            1 for a in appointments
+            if a["appointment_date"]
+            and today.strftime("%Y-%m-%d") <= a["appointment_date"] <= next_week.strftime("%Y-%m-%d")
+            and a["status"] == "Booked"
         )
+
+        return jsonify({
+            "success": True,
+            "appointments": appointments,
+            "stats": {
+                "total": total_appointments,
+                "today": todays_appointments,
+                "upcoming": upcoming_appointments
+            },
+            "filter": filter_option
+        }), 200
 
     except Exception as e:
         print("[ERROR] doctor_appointments:", e)
-        flash("Error loading appointments.", "danger")
-        return redirect("/doctor/dashboard")  
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading appointments"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/doctor/appointment/view/<int:appointment_id>")
+@app.route("/api/doctor/appointments/<int:appointment_id>", methods=["GET"])
 @login_required
 def doctor_view_appointment(appointment_id):
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
+
     try:
-        appointment = (
-            session.query(Appointment)
-            .filter_by(id=appointment_id)
-            .first()
-        )
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
+        appointment = session.query(Appointment).filter_by(
+            id=appointment_id,
+            docid=doctor.id
+        ).first()
 
         if not appointment:
-            flash("Appointment not found.", "danger")
-            return redirect("/doctor/appointments")
+            return jsonify({
+                "success": False,
+                "message": "Appointment not found"
+            }), 404
 
-        patient = session.query(Patient).filter_by(id=appointment.patid).first()
-        user = session.query(User).filter_by(id=patient.uid).first() if patient else None
+        patient = appointment.patient
+        user = patient.user if patient else None
 
-        treatment = session.query(Treatment).filter_by(appointid=appointment.id).first()
+        treatment = session.query(Treatment).filter_by(
+            appointid=appointment.id
+        ).first()
 
-        return render_template(
-            "doctor_view_appointment.html",
-            appointment=appointment,
-            patient=patient,
-            user=user,
-            treatment=treatment,
-        )
+        age = 0
+        if patient and patient.dob:
+            today_date = date.today()
+            age = today_date.year - patient.dob.year - (
+                (today_date.month, today_date.day) < (patient.dob.month, patient.dob.day)
+            )
+
+        return jsonify({
+            "success": True,
+            "appointment": {
+                "id": appointment.id,
+                "appointment_number": appointment.appointment_number,
+                "date": appointment.appoint_date.strftime("%Y-%m-%d") if appointment.appoint_date else None,
+                "time": appointment.appoint_time.strftime("%H:%M") if appointment.appoint_time else None,
+                "status": appointment.status,
+                "reason": appointment.reason_for_visit or ""
+            },
+            "patient": {
+                "name": user.name if user else "Unknown",
+                "gender": patient.gender if patient else "-",
+                "age": age,
+                "blood_group": patient.blood_group if patient else "-",
+                "address": patient.address if patient else "-"
+            },
+            "treatment": {
+                "diagnosis": treatment.diagnosis if treatment else None,
+                "prescription": treatment.prescription if treatment else None,
+                "notes": treatment.notes if treatment else None
+            }
+        }), 200
 
     except Exception as e:
         print("[ERROR] doctor_view_appointment:", e)
-        flash("Error loading appointment details.", "danger")
-        return redirect("/doctor/appointments")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading appointment details"
+        }), 500
+
     finally:
         session.close()
 
 
-
-@app.route("/doctor/mark/complete/<int:appointment_id>")
+@app.route("/api/doctor/appointments/<int:appointment_id>/complete", methods=["PUT"])
 @login_required
 def doctor_mark_complete(appointment_id):
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
-    mark_complete(appointment_id)
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
+    session = SessionLocal()
 
-@app.route("/doctor/mark/cancel/<int:appointment_id>")
+    try:
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
+        appointment = session.query(Appointment).filter_by(
+            id=appointment_id,
+            docid=doctor.id
+        ).first()
+
+        if not appointment:
+            return jsonify({
+                "success": False,
+                "message": "Appointment not found"
+            }), 404
+
+        if appointment.status != "Booked":
+            return jsonify({
+                "success": False,
+                "message": "Only booked appointments can be marked complete"
+            }), 400
+
+        appointment.status = "Completed"
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Appointment marked as completed"
+        }), 200
+
+    except Exception as e:
+        session.rollback()
+        print("[ERROR] doctor_mark_complete:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating appointment"
+        }), 500
+
+    finally:
+        session.close()
+
+@app.route("/api/doctor/appointments/<int:appointment_id>/cancel", methods=["PUT"])
 @login_required
 def doctor_mark_cancel(appointment_id):
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
     session = SessionLocal()
+
     try:
-        appointment = session.query(Appointment).filter_by(id=appointment_id).first()
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
+        appointment = session.query(Appointment).filter_by(
+            id=appointment_id,
+            docid=doctor.id
+        ).first()
+
         if not appointment:
-            flash("Appointment not found.", "warning")
-            return redirect("/doctor/appointments")
+            return jsonify({
+                "success": False,
+                "message": "Appointment not found"
+            }), 404
+
+        if appointment.status != "Booked":
+            return jsonify({
+                "success": False,
+                "message": "Only booked appointments can be cancelled"
+            }), 400
 
         appointment.status = "Cancelled"
         session.commit()
-        flash(f"Appointment #{appointment.appointment_number} has been cancelled.", "danger")
-        return redirect("/doctor/appointments")
+
+        return jsonify({
+            "success": True,
+            "message": "Appointment cancelled successfully"
+        }), 200
+
     except Exception as e:
-        print("[ERROR] doctor_mark_cancel:", e)
-        flash("Error cancelling appointment.", "danger")
         session.rollback()
-        return redirect("/doctor/appointments")
+        print("[ERROR] doctor_mark_cancel:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error cancelling appointment"
+        }), 500
+
     finally:
         session.close()
 
-@app.route("/doctor/diagnose/<int:appointment_id>", methods=["GET", "POST"])
+@app.route("/api/doctor/appointments/<int:appointment_id>/diagnose", methods=["POST"])
 @login_required
 def doctor_diagnose(appointment_id):
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
+
     try:
-        appointment = session.query(Appointment).filter_by(id=appointment_id).first()
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
+        appointment = session.query(Appointment).filter_by(
+            id=appointment_id,
+            docid=doctor.id
+        ).first()
+
         if not appointment:
-            flash("Appointment not found.", "danger")
-            return redirect("/doctor/appointments")
+            return jsonify({
+                "success": False,
+                "message": "Appointment not found"
+            }), 404
 
-        # Get patient information
-        patient = session.query(Patient).filter_by(id=appointment.patid).first()
+        data = request.get_json()
 
-        # Fetch existing diagnosis if available
-        treatment = session.query(Treatment).filter_by(appointid=appointment.id).first()
+        diagnosis = data.get("diagnosis")
+        treatment_plan = data.get("treatment_plan")
+        prescription = data.get("prescription")
+        notes = data.get("notes")
+        next_visit_str = data.get("next_visit_date")
 
-        # Get medical history
-        medical_history = session.query(MedicalHistory).filter_by(patid=appointment.patid).first()
-
-        if request.method == "POST":
-            diagnosis = request.form.get("diagnosis")
-            treatment_plan = request.form.get("treatment_plan")
-            prescription = request.form.get("prescription")
-            notes = request.form.get("notes")
-            next_visit_str = request.form.get("next_visit_date")
-
-            next_visit_date = None
-            if next_visit_str:
-                try:
-                    next_visit_date = datetime.strptime(next_visit_str, "%Y-%m-%d").date()
-                except ValueError:
-                    flash("Invalid date format.", "warning")
-
+        next_visit_date = None
+        if next_visit_str:
             try:
-                if treatment:
-                    # Update existing record
-                    treatment.diagnosis = diagnosis
-                    treatment.treatment_plan = treatment_plan
-                    treatment.prescription = prescription
-                    treatment.notes = notes
-                    treatment.next_visit_date = next_visit_date
+                next_visit_date = datetime.strptime(next_visit_str, "%Y-%m-%d").date()
+            except:
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid date format"
+                }), 400
+
+        patient_id = appointment.patid
+
+        treatment = session.query(Treatment).filter_by(
+            appointid=appointment.id
+        ).first()
+
+        medical_history = session.query(MedicalHistory).filter_by(
+            patid=patient_id
+        ).first()
+
+        if treatment:
+            treatment.diagnosis = diagnosis
+            treatment.treatment_plan = treatment_plan
+            treatment.prescription = prescription
+            treatment.notes = notes
+            treatment.next_visit_date = next_visit_date
+        else:
+            treatment = Treatment(
+                appointid=appointment.id,
+                docid=appointment.docid,
+                patid=patient_id,
+                diagnosis=diagnosis,
+                treatment_plan=treatment_plan,
+                prescription=prescription,
+                notes=notes,
+                next_visit_date=next_visit_date
+            )
+            session.add(treatment)
+
+        timestamp = datetime.now().strftime('%Y-%m-%d')
+
+        if medical_history:
+            if diagnosis:
+                if medical_history.chronic_conditions:
+                    medical_history.chronic_conditions += f"\n[{timestamp}] {diagnosis}"
                 else:
-                    # Create new record
-                    treatment = Treatment(
-                        appointid=appointment.id,
-                        docid=appointment.docid,
-                        patid=appointment.patid,
-                        diagnosis=diagnosis,
-                        treatment_plan=treatment_plan,
-                        prescription=prescription,
-                        notes=notes,
-                        next_visit_date=next_visit_date,
-                    )
-                    session.add(treatment)
+                    medical_history.chronic_conditions = f"[{timestamp}] {diagnosis}"
 
-                # Update or create medical history
-                if medical_history:
-                    # Append to existing chronic conditions
-                    if medical_history.chronic_conditions:
-                        medical_history.chronic_conditions += f"\n[{datetime.now().strftime('%Y-%m-%d')}] {diagnosis}"
-                    else:
-                        medical_history.chronic_conditions = f"[{datetime.now().strftime('%Y-%m-%d')}] {diagnosis}"
-                    
-                    # Update current medications if prescription exists
-                    if prescription:
-                        if medical_history.current_medications:
-                            medical_history.current_medications += f"\n[{datetime.now().strftime('%Y-%m-%d')}] {prescription}"
-                        else:
-                            medical_history.current_medications = f"[{datetime.now().strftime('%Y-%m-%d')}] {prescription}"
+            if prescription:
+                if medical_history.current_medications:
+                    medical_history.current_medications += f"\n[{timestamp}] {prescription}"
                 else:
-                    # Create new medical history
-                    medical_history = MedicalHistory(
-                        patid=appointment.patid,
-                        chronic_conditions=f"[{datetime.now().strftime('%Y-%m-%d')}] {diagnosis}",
-                        current_medications=f"[{datetime.now().strftime('%Y-%m-%d')}] {prescription}" if prescription else None,
-                    )
-                    session.add(medical_history)
+                    medical_history.current_medications = f"[{timestamp}] {prescription}"
+        else:
+            medical_history = MedicalHistory(
+                patid=patient_id,
+                chronic_conditions=f"[{timestamp}] {diagnosis}" if diagnosis else None,
+                current_medications=f"[{timestamp}] {prescription}" if prescription else None
+            )
+            session.add(medical_history)
 
-                appointment.status = "Completed"
-                session.commit()
-                flash("Diagnosis saved and medical history updated successfully!", "success")
-                return redirect("/doctor/appointment/view/{}".format(appointment.id))
+        appointment.status = "Completed"
 
-            except Exception as e:
-                session.rollback()
-                print("[ERROR] doctor_diagnose (POST):", e)
-                flash("Error saving treatment details.", "danger")
+        session.commit()
 
-        return render_template(
-            "doctor_diagnose.html",
-            appointment=appointment,
-            patient=patient,
-            treatment=treatment,
-            medical_history=medical_history,
-        )
+        return jsonify({
+            "success": True,
+            "message": "Diagnosis saved successfully"
+        }), 200
 
     except Exception as e:
+        session.rollback()
         print("[ERROR] doctor_diagnose:", e)
-        flash("Error loading diagnosis page.", "danger")
-        return redirect("/doctor/appointments")
+
+        return jsonify({
+            "success": False,
+            "message": "Error saving treatment"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/doctor/patients")
+@app.route("/api/doctor/patients", methods=["GET"])
 @login_required
 def doctor_patients():
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
+
     try:
         doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
-        if not doctor:
-            flash("Doctor profile not found.", "danger")
-            return redirect("/login")
 
-        # Get all unique patients who have appointments with this doctor
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
         patients_query = (
             session.query(Patient)
             .join(Appointment, Appointment.patid == Patient.id)
@@ -2097,157 +2853,211 @@ def doctor_patients():
             .all()
         )
 
-        patients = []
-        for patient in patients_query:
-            # Calculate age
-            age = calculate_age(patient.dob)
-            
-            # Get appointment count
-            appointment_count = (
-                session.query(Appointment)
-                .filter(Appointment.patid == patient.id, Appointment.docid == doctor.id)
-                .count()
-            )
-            
-            # Get last visit
-            last_visit = (
-                session.query(Appointment.appoint_date)
-                .filter(Appointment.patid == patient.id, Appointment.docid == doctor.id)
-                .order_by(Appointment.appoint_date.desc())
-                .first()
-            )
+        patients_list = []
 
-            patients.append({
+        for patient in patients_query:
+            age = 0
+            if patient.dob:
+                today_date = date.today()
+                age = today_date.year - patient.dob.year - (
+                    (today_date.month, today_date.day) < (patient.dob.month, patient.dob.day)
+                )
+
+            appointment_count = session.query(Appointment).filter(
+                Appointment.patid == patient.id,
+                Appointment.docid == doctor.id
+            ).count()
+
+            last_visit = session.query(Appointment.appoint_date).filter(
+                Appointment.patid == patient.id,
+                Appointment.docid == doctor.id
+            ).order_by(
+                Appointment.appoint_date.desc()
+            ).first()
+
+            patients_list.append({
                 "id": patient.id,
-                "name": patient.user.name,
+                "name": patient.user.name if patient.user else "",
                 "gender": patient.gender,
                 "age": age,
                 "blood_group": patient.blood_group,
                 "address": patient.address,
                 "appointment_count": appointment_count,
-                "last_visit": last_visit,
+                "last_visit": last_visit[0].strftime("%Y-%m-%d") if last_visit else None
             })
 
-        return render_template("doctor_patients.html", patients=patients)
+        return jsonify({
+            "success": True,
+            "patients": patients_list
+        }), 200
 
     except Exception as e:
         print("[ERROR] doctor_patients:", e)
-        flash("Error loading patients.", "danger")
-        return redirect("/doctor/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading patients"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/doctor/availability", methods=["GET", "POST"])
+@app.route("/api/doctor/availability", methods=["GET"])
 @login_required
-def doctor_availability():
+def get_doctor_availability():
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
+
     try:
         doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
         if not doctor:
-            flash("Doctor profile not found.", "danger")
-            return redirect("/login")
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
 
-        if request.method == "POST":
-            # Process availability updates for next 7 days
-            today = date.today()
-            
-            for day_index in range(7):
-                current_date = today + timedelta(days=day_index)
-                available = request.form.get(f"available_{day_index}") == "on"
-                start_time_str = request.form.get(f"start_time_{day_index}")
-                end_time_str = request.form.get(f"end_time_{day_index}")
-                
-                # Check if availability record exists
-                availability = (
-                    session.query(DoctorAvailability)
-                    .filter_by(docid=doctor.id, available_date=current_date)
-                    .first()
-                )
-                
-                if available and start_time_str and end_time_str:
-                    from datetime import datetime
-                    start_time = datetime.strptime(start_time_str, "%H:%M").time()
-                    end_time = datetime.strptime(end_time_str, "%H:%M").time()
-                    
-                    if availability:
-                        # Update existing
-                        availability.available = True
-                        availability.start_time = start_time
-                        availability.end_time = end_time
-                    else:
-                        # Create new
-                        availability = DoctorAvailability(
-                            docid=doctor.id,
-                            available_date=current_date,
-                            start_time=start_time,
-                            end_time=end_time,
-                            available=True,
-                        )
-                        session.add(availability)
-                else:
-                    # Mark as unavailable
-                    if availability:
-                        availability.available = False
-            
-            session.commit()
-            flash("Availability updated successfully!", "success")
-            return redirect("/doctor/availability")
-
-        # GET request - show availability form
         today = date.today()
-        availability_data = {}
-        
+        availability_data = []
+
         for day_index in range(7):
             current_date = today + timedelta(days=day_index)
-            day_name = current_date.strftime("%A")
-            
-            availability = (
-                session.query(DoctorAvailability)
-                .filter_by(docid=doctor.id, available_date=current_date)
-                .first()
-            )
-            
-            availability_data[day_index] = {
-                "date": current_date,
-                "day_name": day_name,
-                "availability": {
-                    "available": availability.available if availability else False,
-                    "startTime": availability.start_time if availability else None,
-                    "endTime": availability.end_time if availability else None,
-                    "max_appointments": 10,
-                } if availability else None,
-            }
 
-        return render_template("doctor_availability.html", availability_data=availability_data)
+            availability = session.query(DoctorAvailability).filter_by(
+                docid=doctor.id,
+                available_date=current_date
+            ).first()
+
+            availability_data.append({
+                "date": current_date.strftime("%Y-%m-%d"),
+                "day_name": current_date.strftime("%A"),
+                "available": availability.available if availability else False,
+                "start_time": availability.start_time.strftime("%H:%M") if availability and availability.start_time else None,
+                "end_time": availability.end_time.strftime("%H:%M") if availability and availability.end_time else None
+            })
+
+        return jsonify({
+            "success": True,
+            "availability": availability_data
+        }), 200
 
     except Exception as e:
-        print("[ERROR] doctor_availability:", e)
-        flash("Error loading availability.", "danger")
-        return redirect("/doctor/dashboard")
+        print("[ERROR] get_doctor_availability:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading availability"
+        }), 500
+
+    finally:
+        session.close()
+
+@app.route("/api/doctor/availability", methods=["POST"])
+@login_required
+def update_doctor_availability():
+
+    if current_user.role != "doctor":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
+        data = request.get_json()
+        availability_list = data.get("availability", [])
+
+        for item in availability_list:
+            date_str = item.get("date")
+            available = item.get("available", False)
+            start_time_str = item.get("start_time")
+            end_time_str = item.get("end_time")
+
+            current_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
+            availability = session.query(DoctorAvailability).filter_by(
+                docid=doctor.id,
+                available_date=current_date
+            ).first()
+
+            if available and start_time_str and end_time_str:
+                start_time = datetime.strptime(start_time_str, "%H:%M").time()
+                end_time = datetime.strptime(end_time_str, "%H:%M").time()
+
+                if availability:
+                    availability.available = True
+                    availability.start_time = start_time
+                    availability.end_time = end_time
+                else:
+                    availability = DoctorAvailability(
+                        docid=doctor.id,
+                        available_date=current_date,
+                        start_time=start_time,
+                        end_time=end_time,
+                        available=True
+                    )
+                    session.add(availability)
+            else:
+                if availability:
+                    availability.available = False
+
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Availability updated successfully"
+        }), 200
+
+    except Exception as e:
+        session.rollback()
+        print("[ERROR] update_doctor_availability:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating availability"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/doctor/treatments")
+@app.route("/api/doctor/treatments", methods=["GET"])
 @login_required
 def doctor_treatments():
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
+
     try:
         doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
-        if not doctor:
-            flash("Doctor profile not found.", "danger")
-            return redirect("/login")
 
-        # Get all treatments by this doctor
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
         treatments_query = (
             session.query(Treatment)
             .join(Appointment, Treatment.appointid == Appointment.id)
@@ -2257,243 +3067,417 @@ def doctor_treatments():
             .all()
         )
 
-        treatments = []
-        for treatment in treatments_query:
-            treatments.append({
-                "id": treatment.id,
-                "patient_name": treatment.patient.user.name,
-                "diagnosis": treatment.diagnosis,
-                "treatment_plan": treatment.treatment_plan,
-                "prescription": treatment.prescription,
-                "notes": treatment.notes,
-                "treatment_date": treatment.treatment_date,
-                "appointment_date": treatment.appointment.appoint_date if treatment.appointment else None,
-                "next_visit_date": treatment.next_visit_date,
-            })
+        treatments_list = [
+            {
+                "id": t.id,
+                "patient_name": t.patient.user.name if t.patient and t.patient.user else "N/A",
+                "diagnosis": t.diagnosis or "",
+                "treatment_plan": t.treatment_plan or "",
+                "prescription": t.prescription or "",
+                "notes": t.notes or "",
+                "treatment_date": t.treatment_date.strftime("%Y-%m-%d") if t.treatment_date else None,
+                "appointment_date": t.appointment.appoint_date.strftime("%Y-%m-%d") if t.appointment and t.appointment.appoint_date else None,
+                "next_visit_date": t.next_visit_date.strftime("%Y-%m-%d") if t.next_visit_date else None
+            }
+            for t in treatments_query
+        ]
 
-        return render_template("doctor_treatment.html", treatments=treatments)
+        return jsonify({
+            "success": True,
+            "treatments": treatments_list
+        }), 200
 
     except Exception as e:
         print("[ERROR] doctor_treatments:", e)
-        flash("Error loading treatments.", "danger")
-        return redirect("/doctor/dashboard")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading treatments"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/doctor/patient/history/<int:patient_id>")
+@app.route("/api/doctor/patients/<int:patient_id>/history", methods=["GET"])
 @login_required
 def doctor_patient_history(patient_id):
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
+
     try:
         doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
         if not doctor:
-            flash("Doctor profile not found.", "danger")
-            return redirect("/login")
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
 
-        # Get patient information
         patient = session.query(Patient).filter_by(id=patient_id).first()
+
         if not patient:
-            flash("Patient not found.", "danger")
-            return redirect("/doctor/patients")
+            return jsonify({
+                "success": False,
+                "message": "Patient not found"
+            }), 404
 
-        # Get medical history
-        medical_history = session.query(MedicalHistory).filter_by(patid=patient_id).first()
+        medical_history = session.query(MedicalHistory).filter_by(
+            patid=patient_id
+        ).first()
 
-        # Get all treatments for this patient by this doctor
         treatments = (
             session.query(Treatment)
             .join(Appointment, Treatment.appointid == Appointment.id)
-            .filter(Treatment.patid == patient_id, Treatment.docid == doctor.id)
+            .filter(
+                Treatment.patid == patient_id,
+                Treatment.docid == doctor.id
+            )
             .order_by(Treatment.treatment_date.desc())
             .all()
         )
 
-        # Get all appointments
         appointments = (
             session.query(Appointment)
-            .filter(Appointment.patid == patient_id, Appointment.docid == doctor.id)
+            .filter(
+                Appointment.patid == patient_id,
+                Appointment.docid == doctor.id
+            )
             .order_by(Appointment.appoint_date.desc())
             .all()
         )
 
-        # Calculate age
-        age = calculate_age(patient.dob)
+        age = 0
+        if patient.dob:
+            today_date = date.today()
+            age = today_date.year - patient.dob.year - (
+                (today_date.month, today_date.day) < (patient.dob.month, patient.dob.day)
+            )
 
-        return render_template(
-            "doctor_patient_history.html",
-            patient=patient,
-            age=age,
-            medical_history=medical_history,
-            treatments=treatments,
-            appointments=appointments,
-        )
+        treatments_list = [
+            {
+                "id": t.id,
+                "date": t.treatment_date.strftime("%Y-%m-%d") if t.treatment_date else None,
+                "diagnosis": t.diagnosis or "",
+                "prescription": t.prescription or "",
+                "notes": t.notes or ""
+            }
+            for t in treatments
+        ]
+
+        appointments_list = [
+            {
+                "id": a.id,
+                "date": a.appoint_date.strftime("%Y-%m-%d") if a.appoint_date else None,
+                "time": a.appoint_time.strftime("%H:%M") if a.appoint_time else None,
+                "status": a.status,
+                "reason": a.reason_for_visit or ""
+            }
+            for a in appointments
+        ]
+
+        return jsonify({
+            "success": True,
+            "patient": {
+                "id": patient.id,
+                "name": patient.user.name if patient.user else "",
+                "gender": patient.gender,
+                "age": age,
+                "blood_group": patient.blood_group,
+                "address": patient.address
+            },
+            "medical_history": {
+                "allergies": medical_history.allergies if medical_history else "",
+                "chronic_conditions": medical_history.chronic_conditions if medical_history else "",
+                "medications": medical_history.current_medications if medical_history else "",
+                "notes": medical_history.notes if medical_history else ""
+            },
+            "treatments": treatments_list,
+            "appointments": appointments_list
+        }), 200
 
     except Exception as e:
         print("[ERROR] doctor_patient_history:", e)
-        flash("Error loading patient history.", "danger")
-        return redirect("/doctor/patients")
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading patient history"
+        }), 500
+
     finally:
         session.close()
 
 
-@app.route("/doctor/profile", methods=["GET","POST"])
+@app.route("/api/doctor/profile", methods=["GET"])
 @login_required
-def doctor_profile():
+def get_doctor_profile():
+
     if current_user.role != "doctor":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
-    if request.method=="POST":
-        try:
-            doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
-            if not doctor:
-                flash("Doctor profile not found.", "danger")
-                return redirect("/login")
 
-            # Update profile information
-            name = request.form.get("name")
-            specialization = request.form.get("specialization")
-            qualification = request.form.get("qualification")
-            experience = request.form.get("experience")
-            gender = request.form.get("gender")
-            
-            # Update user information
-            user = session.query(User).filter_by(id=current_user.id).first()
-            if user and name:
-                user.name = name
-            
-            # Update doctor information
-            if specialization:
-                doctor.specialization = specialization
-            if qualification:
-                doctor.qualification = qualification
-            if experience:
-                doctor.experience = int(experience)
-            if gender:
-                doctor.gender = gender
-            
-            session.commit()
-            flash("Profile updated successfully!", "success")
-            return redirect("/doctor/profile")
+    try:
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
 
-        except Exception as e:
-            session.rollback()
-            print("[ERROR] doctor_profile_update:", e)
-            flash("Error updating profile.", "danger")
-            return redirect("/doctor/profile")
-        finally:
-            session.close()
-    else: 
-        try:
-            doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
-            if not doctor:
-                flash("Doctor profile not found.", "danger")
-                return redirect("/login")
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
 
-            # Get department
-            department = session.query(Department).filter_by(id=doctor.depid).first() if doctor.depid else None
+        user = session.query(User).filter_by(id=current_user.id).first()
 
-            # Get statistics
-            total_appointments = (
-                session.query(Appointment)
-                .filter(Appointment.docid == doctor.id)
-                .count()
-            )
-            
-            completed_appointments = (
-                session.query(Appointment)
-                .filter(Appointment.docid == doctor.id, Appointment.status == "Completed")
-                .count()
-            )
-            
-            total_patients = (
-                session.query(Patient)
-                .join(Appointment, Appointment.patid == Patient.id)
-                .filter(Appointment.docid == doctor.id)
-                .group_by(Patient.id)
-                .count()
-            )
+        department = session.query(Department).filter_by(
+            id=doctor.depid
+        ).first() if doctor.depid else None
 
-            return render_template(
-                "doctor_profile.html",
-                doctor=doctor,
-                department=department,
-                total_appointments=total_appointments,
-                completed_appointments=completed_appointments,
-                total_patients=total_patients,
-            )
+        total_appointments = session.query(Appointment).filter(
+            Appointment.docid == doctor.id
+        ).count()
 
-        except Exception as e:
-            print("[ERROR] doctor_profile:", e)
-            flash("Error loading profile.", "danger")
-            return redirect("/doctor/dashboard")
-        finally:
-            session.close()
+        completed_appointments = session.query(Appointment).filter(
+            Appointment.docid == doctor.id,
+            Appointment.status == "Completed"
+        ).count()
 
-@app.route("/patient/profile", methods=["GET", "POST"])
+        total_patients = session.query(Patient).join(
+            Appointment, Appointment.patid == Patient.id
+        ).filter(
+            Appointment.docid == doctor.id
+        ).group_by(Patient.id).count()
+
+        return jsonify({
+            "success": True,
+            "profile": {
+                "name": user.name if user else "",
+                "specialization": doctor.specialization,
+                "qualification": doctor.qualification,
+                "experience": doctor.experience,
+                "gender": doctor.gender,
+                "department": department.name if department else None
+            },
+            "stats": {
+                "total_appointments": total_appointments,
+                "completed_appointments": completed_appointments,
+                "total_patients": total_patients
+            }
+        }), 200
+
+    except Exception as e:
+        print("[ERROR] get_doctor_profile:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading profile"
+        }), 500
+
+    finally:
+        session.close()
+
+@app.route("/api/doctor/profile", methods=["PUT"])
 @login_required
-def patient_profile_update():
-    if current_user.role != "patient":
-        flash("Access denied.", "danger")
-        return redirect("/login")
+def update_doctor_profile():
+
+    if current_user.role != "doctor":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
 
     session = SessionLocal()
+
+    try:
+        data = request.get_json()
+
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
+        user = session.query(User).filter_by(id=current_user.id).first()
+
+        name = data.get("name")
+        specialization = data.get("specialization")
+        qualification = data.get("qualification")
+        experience = data.get("experience")
+        gender = data.get("gender")
+
+        if name and user:
+            user.name = name
+
+        if specialization:
+            doctor.specialization = specialization
+
+        if qualification:
+            doctor.qualification = qualification
+
+        if experience is not None:
+            try:
+                exp_val = int(experience)
+                if exp_val < 0:
+                    return jsonify({
+                        "success": False,
+                        "message": "Experience cannot be negative"
+                    }), 400
+                doctor.experience = exp_val
+            except:
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid experience value"
+                }), 400
+
+        if gender:
+            doctor.gender = gender
+
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Profile updated successfully"
+        }), 200
+
+    except Exception as e:
+        session.rollback()
+        print("[ERROR] update_doctor_profile:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating profile"
+        }), 500
+
+    finally:
+        session.close()
+
+@app.route("/api/patient/profile", methods=["GET"])
+@login_required
+def get_patient_profile():
+
+    if current_user.role != "patient":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
 
         if not patient:
-            flash("Patient profile not found.", "danger")
-            return redirect("/login")
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
 
-        if request.method == "POST":
-            try:
-                gender = request.form.get("gender")
-                dob_str = request.form.get("dob")
-                blood_group = request.form.get("blood_group")
-                phone = request.form.get("phone")
-                address = request.form.get("address")
+        user = session.query(User).filter_by(id=current_user.id).first()
 
-                
-                dob = None
-                if dob_str:
-                    try:
-                        dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
-                    except ValueError:
-                        flash("Invalid date format for Date of Birth.", "warning")
-                        dob = None
-
-                
-                user = session.query(User).filter_by(id=current_user.id).first()
-
-                
-                patient.gender = gender
-                patient.dob = dob
-                patient.blood_group = blood_group
-                patient.address = address
-
-                session.commit()
-                flash("Profile updated successfully!", "success")
-                return redirect("/patient/profile")
-
-            except Exception as e:
-                session.rollback()
-                print("[ERROR] patient_profile_update:", e)
-                flash("Error updating profile. Please try again.", "danger")
-                return redirect("/patient/profile")
-
-        # Pass date module to template for age calculation
-        return render_template("patient_profile.html", patient=patient, date=date)
+        return jsonify({
+            "success": True,
+            "profile": {
+                "name": user.name if user else "",
+                "gender": patient.gender,
+                "dob": patient.dob.strftime("%Y-%m-%d") if patient.dob else None,
+                "blood_group": patient.blood_group,
+                "address": patient.address
+            }
+        }), 200
 
     except Exception as e:
-        print("[ERROR] patient_profile:", e)
-        flash("Error loading profile.", "danger")
-        return redirect("/patient/dashboard")
+        print("[ERROR] get_patient_profile:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading profile"
+        }), 500
+
+    finally:
+        session.close()
+
+@app.route("/api/patient/profile", methods=["PUT"])
+@login_required
+def update_patient_profile():
+
+    if current_user.role != "patient":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        data = request.get_json()
+
+        patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
+        if not patient:
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
+
+        gender = data.get("gender")
+        dob_str = data.get("dob")
+        blood_group = data.get("blood_group")
+        address = data.get("address")
+        name = data.get("name")
+
+        dob = None
+        if dob_str:
+            try:
+                dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
+            except:
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid date format"
+                }), 400
+
+        user = session.query(User).filter_by(id=current_user.id).first()
+
+        if name and user:
+            user.name = name
+
+        if gender:
+            patient.gender = gender
+
+        if dob is not None:
+            patient.dob = dob
+
+        if blood_group:
+            patient.blood_group = blood_group
+
+        if address:
+            patient.address = address
+
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Profile updated successfully"
+        }), 200
+
+    except Exception as e:
+        session.rollback()
+        print("[ERROR] update_patient_profile:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating profile"
+        }), 500
+
     finally:
         session.close()
 
