@@ -20,6 +20,7 @@ const handleLogin = async () => {
   try {
     const response = await fetch('http://127.0.0.1:5000/api/login', {
       method: 'POST',
+      credentials: 'include', 
       headers: {
         'Content-Type': 'application/json'
       },
@@ -41,11 +42,11 @@ const handleLogin = async () => {
 
       // Redirect based on role
       if (data.role === 'admin') {
-        router.push('/dashboard/admin')
+        router.push('/admin/dashboard')
       } else if (data.role === 'doctor') {
-        router.push('/dashboard/doctor')
+        router.push('/doctor/dashboard')
       } else {
-        router.push('/dashboard/patient')   // default for patient
+        router.push('/patient/dashboard/')   // default for patient
       }
     } else {
       errorMessage.value = data.message || 'Invalid username or password'
@@ -105,6 +106,7 @@ const handleLogin = async () => {
         </button>
       </form>
 
+
       <div class="text-center mt-4">
         <p>
           Don't have an account? 
@@ -116,31 +118,29 @@ const handleLogin = async () => {
 </template>
 
 <style scoped>
-.login-container {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
+  .login-container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
 
-.login-card {
-  background: white;
-  padding: 2.5rem 2rem;
-  border-radius: 16px;
-  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
-  width: 100%;
-  max-width: 420px;
-}
+  .login-card {
+    padding: 2.5rem 2rem;
+    border-radius: 16px;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+    width: 100%;
+    max-width: 420px;
+  }
 
-.form-control {
-  padding: 12px 15px;
-  border-radius: 8px;
-}
+  .form-control {
+    padding: 12px 15px;
+    border-radius: 8px;
+  }
 
-.btn-primary {
-  border-radius: 8px;
-  font-weight: 600;
-}
+  .btn-primary {
+    border-radius: 8px;
+    font-weight: 600;
+  }
 </style>
