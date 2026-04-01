@@ -8,7 +8,7 @@
             <i class="fas fa-tachometer-alt me-2" style="color: var(--primary);"></i>
             Admin Dashboard
           </h2>
-          <p class="mb-0">Welcome back, <strong>{{ currentUser?.name || 'Admin' }}</strong>!</p>
+          <p class="mb-0">Welcome back, <strong>{{ currentUser?.name }}</strong>!</p>
         </div>
         <div class="text-end">
           <small class="text-muted d-block">Last Login</small>

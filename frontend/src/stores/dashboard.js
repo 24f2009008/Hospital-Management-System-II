@@ -23,9 +23,9 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   let url = ''
   switch (role.toLowerCase()) {
-    case 'admin':   url = '/api/admin/dashboard'; break
-    case 'patient': url = '/api/patient/dashboard'; break
-    case 'doctor':  url = '/api/doctor/dashboard'; break
+    case 'admin':   url = 'http://127.0.0.1:5000/api/admin/dashboard'; break
+    case 'patient': url = 'http://127.0.0.1:5000/api/patient/dashboard'; break
+    case 'doctor':  url = 'http://127.0.0.1:5000/api/doctor/dashboard'; break
     default:
       error.value = 'Invalid role'
       loading.value = false
@@ -54,12 +54,6 @@ export const useDashboardStore = defineStore('dashboard', () => {
       }
     }
 
-    // If not JSON, show raw text for debugging
-    if (!contentType || !contentType.includes('application/json')) {
-      const text = await response.text()
-      console.error('Received non-JSON response:', text.substring(0, 300))
-      throw new Error(`Expected JSON but got ${contentType || 'HTML/text'}. Check Network tab.`)
-    }
 
     const data = await response.json()
 

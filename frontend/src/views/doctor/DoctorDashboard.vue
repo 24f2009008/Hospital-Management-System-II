@@ -6,13 +6,16 @@
         <div>
           <h2 class="mb-1">
             <i class="fas fa-tachometer-alt me-2" style="color: var(--primary);"></i>
-            Admin Dashboard
+            Doctor Dashboard
           </h2>
-          <p class="mb-0">Welcome back, <strong>{{ currentUser?.name || 'Admin' }}</strong>!</p>
+          <p class="mb-0">
+            Welcome back, <strong>Dr. {{ currentUser?.name || 'Doctor' }}</strong>! 
+            Here's your overview.
+          </p>
         </div>
         <div class="text-end">
-          <small class="text-muted d-block">Last Login</small>
-          <strong style="color: var(--primary);">{{ formattedLastLogin }}</strong>
+          <small class="text-muted d-block">Today</small>
+          <strong style="color: var(--primary);">{{ todayDate }}</strong>
         </div>
       </div>
     </div>
@@ -20,13 +23,13 @@
     <!-- Loading State -->
     <div v-if="dashboardStore.loading" class="text-center py-5">
       <div class="spinner-border text-primary" role="status"></div>
-      <p class="mt-3">Loading dashboard...</p>
+      <p class="mt-3">Loading your dashboard...</p>
     </div>
 
     <!-- Error State -->
-    <div v-else-if="dashboardStore.error" class="alert alert-danger">
-      {{ dashboardStore.error }}
-      <button class="btn btn-sm btn-outline-danger ms-3" @click="loadDashboard">
+    <div v-else-if="dashboardStore.error" class="alert alert-danger d-flex justify-content-between align-items-center">
+      <span>{{ dashboardStore.error }}</span>
+      <button class="btn btn-sm btn-outline-danger" @click="loadDashboard">
         Retry
       </button>
     </div>
@@ -40,34 +43,16 @@
             <div class="card-body p-4">
               <div class="d-flex justify-content-between align-items-center">
                 <div>
-                  <p class="text-muted mb-2 text-uppercase stats-label">Total Doctors</p>
-                  <h2 class="mb-0 fw-bold" style="color: var(--primary); font-size: 2.5rem;">
-                    {{ dashboardStore.stats.doctors }}
+                  <p class="text-muted mb-2 text-uppercase small fw-semibold">My Patients</p>
+                  <h2 class="mb-0 fw-bold text-primary">
+                    {{ dashboardStore.stats.assigned_patients?.length || 0 }}
                   </h2>
-                  <small class="text-muted"><i class="fas fa-user-md me-1"></i>Active in system</small>
+                  <small class="text-muted">
+                    <i class="fas fa-users me-1"></i>Total patients
+                  </small>
                 </div>
-                <div class="stat-icon" style="background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);">
-                  <i class="fas fa-user-md fa-2x text-white"></i>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Similar cards for Patients and Appointments (update numbers) -->
-        <div class="col-md-4 mb-3">
-          <div class="stat-card">
-            <div class="card-body p-4">
-              <div class="d-flex justify-content-between align-items-center">
-                <div>
-                  <p class="text-muted mb-2 text-uppercase stats-label">Total Patients</p>
-                  <h2 class="mb-0 fw-bold" style="color: var(--success); font-size: 2.5rem;">
-                    {{ dashboardStore.stats.patients }}
-                  </h2>
-                  <small class="text-muted"><i class="fas fa-procedures me-1"></i>Registered</small>
-                </div>
-                <div class="stat-icon" style="background: linear-gradient(135deg, var(--success) 0%, #059669 100%);">
-                  <i class="fas fa-procedures fa-2x text-white"></i>
+                <div class="stat-icon bg-primary bg-gradient text-white">
+                  <i class="fas fa-users fa-2x"></i>
                 </div>
               </div>
             </div>
@@ -79,14 +64,37 @@
             <div class="card-body p-4">
               <div class="d-flex justify-content-between align-items-center">
                 <div>
-                  <p class="text-muted mb-2 text-uppercase stats-label">Total Appointments</p>
-                  <h2 class="mb-0 fw-bold" style="color: var(--info); font-size: 2.5rem;">
-                    {{ dashboardStore.stats.appointments }}
+                  <p class="text-muted mb-2 text-uppercase small fw-semibold">Today's Appointments</p>
+                  <h2 class="mb-0 fw-bold text-info">
+                    {{ dashboardStore.stats.todays_appointments || 0 }}
                   </h2>
-                  <small class="text-muted"><i class="fas fa-calendar-check me-1"></i>All time</small>
+                  <small class="text-muted">
+                    <i class="fas fa-calendar-day me-1"></i>Scheduled today
+                  </small>
                 </div>
-                <div class="stat-icon" style="background: linear-gradient(135deg, var(--info) 0%, #2563eb 100%);">
-                  <i class="fas fa-calendar-check fa-2x text-white"></i>
+                <div class="stat-icon bg-info bg-gradient text-white">
+                  <i class="fas fa-calendar-day fa-2x"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-4 mb-3">
+          <div class="stat-card">
+            <div class="card-body p-4">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <p class="text-muted mb-2 text-uppercase small fw-semibold">Upcoming Week</p>
+                  <h2 class="mb-0 fw-bold text-warning">
+                    {{ dashboardStore.stats.upcoming_appointments || 0 }}
+                  </h2>
+                  <small class="text-muted">
+                    <i class="fas fa-calendar-check me-1"></i>Next 7 days
+                  </small>
+                </div>
+                <div class="stat-icon bg-warning bg-gradient text-white">
+                  <i class="fas fa-calendar-check fa-2x"></i>
                 </div>
               </div>
             </div>
@@ -94,48 +102,83 @@
         </div>
       </div>
 
-      <!-- Quick Actions (same as before) -->
-      <!-- ... your quick actions row ... -->
-
-      <!-- Recent Doctors -->
-      <div class="row mb-4">
-        <div class="col-12">
-          <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-              <h5 class="mb-0"><i class="fas fa-user-md me-2"></i>Recent Doctors</h5>
-              <router-link to="/admin/doctors" class="btn btn-sm btn-outline-primary">View All</router-link>
+      <!-- Quick Actions -->
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5 class="mb-0">
+            <i class="fas fa-bolt me-2"></i>Quick Actions
+          </h5>
+        </div>
+        <div class="card-body p-4">
+          <div class="row g-3">
+            <div class="col-md-3 col-sm-6">
+              <router-link to="/doctor/appointments" 
+                class="btn btn-outline-primary w-100 py-3 fw-semibold border-2 d-flex flex-column align-items-center">
+                <i class="fas fa-calendar-check fa-lg mb-2"></i>
+                View Appointments
+              </router-link>
             </div>
-            <div class="card-body">
-              <div v-if="dashboardStore.recentDoctors.length" class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                  <thead class="table-light">
-                    <tr>
-                      <th>ID</th>
-                      <th>Name</th>
-                      <th>Specialization</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="doctor in dashboardStore.recentDoctors" :key="doctor.id">
-                      <td><strong>DR{{ String(doctor.id).padStart(3, '0') }}</strong></td>
-                      <td>{{ doctor.name }}</td>
-                      <td>{{ doctor.specialization }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div v-else class="text-center text-muted py-5">
-                <i class="fas fa-user-md fa-4x mb-3 opacity-25"></i>
-                <p>No doctors found</p>
-              </div>
+            <div class="col-md-3 col-sm-6">
+              <router-link to="/doctor/patients" 
+                class="btn btn-outline-success w-100 py-3 fw-semibold border-2 d-flex flex-column align-items-center">
+                <i class="fas fa-users fa-lg mb-2"></i>
+                My Patients
+              </router-link>
+            </div>
+            <div class="col-md-3 col-sm-6">
+              <router-link to="/doctor/availability" 
+                class="btn btn-outline-info w-100 py-3 fw-semibold border-2 d-flex flex-column align-items-center">
+                <i class="fas fa-calendar-alt fa-lg mb-2"></i>
+                Set Availability
+              </router-link>
+            </div>
+            <div class="col-md-3 col-sm-6">
+              <router-link to="/doctor/profile" 
+                class="btn btn-outline-warning w-100 py-3 fw-semibold border-2 d-flex flex-column align-items-center">
+                <i class="fas fa-user-cog fa-lg mb-2"></i>
+                My Profile
+              </router-link>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Recent Patients (similar structure) -->
-      <!-- You can add Recent Appointments too using recentAppointments -->
-
+      <!-- Recent Patients -->
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">
+            <i class="fas fa-users me-2"></i>Recent Patients
+          </h5>
+          <router-link to="/doctor/patients" class="btn btn-sm btn-outline-success">
+            View All
+          </router-link>
+        </div>
+        <div class="card-body">
+          <div v-if="dashboardStore.assigned_patients && dashboardStore.assigned_patients.length" class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="patient in dashboardStore.assigned_patients" :key="patient.id">
+                  <td>
+                    <strong>PT{{ String(patient.id).padStart(3, '0') }}</strong>
+                  </td>
+                  <td>{{ patient.name }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="text-center text-muted py-5">
+            <i class="fas fa-users fa-4x mb-3 opacity-25"></i>
+            <h5>No Patients Yet</h5>
+            <p>Your patient list will appear here once you start seeing patients.</p>
+          </div>
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -144,18 +187,17 @@
 import { computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDashboardStore } from '@/stores/dashboard'
-import { useRouter } from 'vue-router'
 
 const authStore = useAuthStore()
 const dashboardStore = useDashboardStore()
-const router = useRouter()
 
 const currentUser = computed(() => authStore.user)
 
-const formattedLastLogin = computed(() => {
+const todayDate = computed(() => {
   return new Date().toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
   })
 })
 
@@ -169,10 +211,24 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.stats-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+.page-header {
+  background: white;
+  padding: 2rem;
+  border-radius: 16px;
+  box-shadow: 0 2px 10px rgba(13, 110, 253, 0.1);
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+  transition: transform 0.2s ease;
+  background: white;
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
 }
 
 .stat-icon {
@@ -183,17 +239,10 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
-/* Optional: Make cards look better */
-.stat-card {
-  border: none;
-  border-radius: 16px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
-  transition: transform 0.2s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-4px);
+.btn.border-2 {
+  border-width: 2px !important;
 }
 </style>

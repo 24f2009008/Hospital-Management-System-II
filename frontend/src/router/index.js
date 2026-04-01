@@ -5,9 +5,12 @@ import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import Logout from '@/views/Logout.vue'
 import AdminLayout from '../layouts/AdminLayout.vue'
+import DoctorLayout from '@/layouts/DoctorLayout.vue'
 import AdminDashboard from '@/views/admin/AdminDashboard.vue'
-// import DoctorDashboard from '../views/DoctorDashboard.vue'
-// import PatientDashboard from '../views/PatientDashboard.vue'
+import PatientLayout from '@/layouts/PatientLayout.vue'
+import DoctorDashboard from '../views/doctor/DoctorDashboard.vue'
+import PatientDashboard from '@/views/patient/PatientDashboard.vue'
+// import PatientDashboard from '../views/Pat ientDashboard.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -17,8 +20,21 @@ const routes = [
   { path: '/admin', component: AdminLayout,
     children: [
       {
-        path: 'dashboard',
-        component: AdminDashboard
+        path: 'dashboard', component: AdminDashboard
+      }
+    ]
+  },
+  { path: '/doctor', component: DoctorLayout,
+    children: [
+      {
+        path: 'dashboard',component: DoctorDashboard
+      }
+    ]
+  },
+  {path: '/patient', component: PatientLayout,
+    children: [
+      {
+        path: 'dashboard', component: PatientDashboard
       }
     ]
   }
