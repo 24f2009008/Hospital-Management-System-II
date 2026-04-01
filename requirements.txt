@@ -3,3 +3,4 @@ sqlalchemy
 flask_login
 flask-restful
 werkzeug
+flask-cors

@@ -1,4 +1,3 @@
-# app.py
 from datetime import datetime, date, timedelta
 from flask import Flask, render_template, request, redirect,  flash, jsonify
 from flask_restful import Api
@@ -27,6 +26,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, aliased
 from datetime import date, timedelta
+from flask_cors import CORS
 
 
 # --- SQLAlchemy setup ---
@@ -380,6 +380,14 @@ def check_doctor_availability(session, doctor_id, appoint_date, appoint_time, ex
 
 # --- Flask app setup ---
 app = Flask(__name__)
+# CORS(app,resources={r"/api/*": {"origins": "http://localhost:5173"}})  # Enable CORS for all origins on specific routes
+CORS(
+    app,
+    supports_credentials=True,                    # ← Required for cookies / Flask-Login session
+    origins=["http://localhost:5173", "http://127.0.0.1:5173"],   # Exact origins          # ← Your Vite dev server origin
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+)
 app.secret_key = "secret_key"
 
 # Initialize Flask-RESTful API
@@ -388,7 +396,7 @@ api = Api(app)
 # --- Flask-Login Setup ---
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = "login"
+login_manager.login_view = "login_api"
 login_manager.login_message = "Please log in to access this page."
 login_manager.login_message_category = "info"
 
@@ -566,13 +574,12 @@ def dashboard_api():
 
             
 @app.route("/api/admin/dashboard", methods=["GET"])
-@login_required
 def admin_dashboard_api():
-    if current_user.role != "admin":
+    if not current_user.is_authenticated or getattr(current_user, 'role', None) != "admin":
         return jsonify({
             "success": False,
-            "message": "Access denied"
-        }), 403
+            "message": "Authentication required. Please log in as admin."
+        }), 401
 
     session = SessionLocal()
     try:
@@ -721,6 +728,111 @@ def patient_dashboard():
 
     except Exception as e:
         print(f"[ERROR] Patient dashboard: {e}")
+
+        return jsonify({
+            "success": False,
+            "message": "Server error"
+        }), 500
+
+    finally:
+        session.close()
+
+@app.route("/api/doctor/dashboard", methods=["GET"])
+@login_required
+def doctor_dashboard_api():
+
+    # ✅ Role check
+    if current_user.role != "doctor":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        # ✅ Get doctor once
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
+        today = date.today()
+        next_week = today + timedelta(days=7)
+
+        # ✅ Stats
+        todays_appointments = session.query(Appointment).filter(
+            Appointment.docid == doctor.id,
+            Appointment.appoint_date == today
+        ).count()
+
+        pending_consultations = session.query(Appointment).filter(
+            Appointment.docid == doctor.id,
+            Appointment.status == "Booked"
+        ).count()
+
+        upcoming_appointments = session.query(Appointment).filter(
+            Appointment.docid == doctor.id,
+            Appointment.appoint_date.between(today, next_week)
+        ).count()
+
+        # ✅ Assigned patients (with user join)
+        assigned_patients = (
+            session.query(Patient)
+            .join(User, User.id == Patient.uid)
+            .join(Appointment, Appointment.patid == Patient.id)
+            .filter(Appointment.docid == doctor.id)
+            .group_by(Patient.id, User.name)
+            .order_by(func.max(Appointment.appoint_date).desc())
+            .limit(5)
+            .all()
+        )
+
+        # ✅ Serialize patients
+        patients_data = [
+            {
+                "id": p.id,
+                "name": p.user.name
+            }
+            for p in assigned_patients
+        ]
+
+        # ✅ Chart data
+        chart_start = today - timedelta(days=6)
+
+        daily_counts = (
+            session.query(Appointment.appoint_date, func.count(Appointment.id))
+            .filter(
+                Appointment.docid == doctor.id,
+                Appointment.appoint_date >= chart_start
+            )
+            .group_by(Appointment.appoint_date)
+            .order_by(Appointment.appoint_date)
+            .all()
+        )
+
+        chart_data = {
+            "dates": [str(d[0]) for d in daily_counts],
+            "counts": [d[1] for d in daily_counts],
+        }
+
+        return jsonify({
+            "success": True,
+            "stats": {
+                "todays_appointments": todays_appointments,
+                "pending_consultations": pending_consultations,
+                "upcoming_appointments": upcoming_appointments
+            },
+            "assigned_patients": patients_data,
+            "chart_data": chart_data,
+            "appointments": []
+        }), 200
+
+    except Exception as e:
+        print(f"[ERROR] Doctor dashboard: {e}")
 
         return jsonify({
             "success": False,
