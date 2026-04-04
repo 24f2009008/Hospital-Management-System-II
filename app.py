@@ -1,5 +1,5 @@
 from datetime import datetime, date, timedelta
-from flask import Flask, render_template, request, redirect,  flash, jsonify
+from flask import Flask, render_template, request, redirect,  flash, jsonify, send_file, make_response
 from flask_restful import Api
 from flask_login import (
     LoginManager,
@@ -10,6 +10,10 @@ from flask_login import (
     UserMixin,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
+import time
+import io
+import csv
 
 from sqlalchemy import (
     create_engine,
@@ -27,12 +31,89 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, aliased
 from datetime import date, timedelta
 from flask_cors import CORS
+import threading
 
 
 # --- SQLAlchemy setup ---
 engine = create_engine("sqlite:///hms.db", echo=True, future=True)
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine, future=True)
+
+
+# --- Redis Caching ---
+import redis
+import os
+
+try:
+    redis_client = redis.Redis(
+        host=os.environ.get('REDIS_HOST', 'localhost'),
+        port=int(os.environ.get('REDIS_PORT', 6379)),
+        db=int(os.environ.get('REDIS_DB', 0)),
+        decode_responses=True
+    )
+    redis_client.ping()
+    USE_REDIS = True
+    print("[REDIS] Connected successfully")
+except Exception as e:
+    print(f"[REDIS] Not available: {e}. Falling back to in-memory cache.")
+    USE_REDIS = False
+    redis_client = None
+
+
+class SimpleCache:
+    def __init__(self, default_ttl=300):
+        self._cache = {}
+        self._timestamps = {}
+        self.default_ttl = default_ttl
+    
+    def get(self, key):
+        if USE_REDIS and redis_client:
+            try:
+                value = redis_client.get(key)
+                if value:
+                    import json
+                    return json.loads(value)
+            except Exception:
+                pass
+        if key in self._cache:
+            if time.time() - self._timestamps.get(key, 0) < self.default_ttl:
+                return self._cache[key]
+            else:
+                del self._cache[key]
+                del self._timestamps[key]
+        return None
+    
+    def set(self, key, value, ttl=None):
+        if USE_REDIS and redis_client:
+            try:
+                import json
+                redis_client.setex(key, ttl or self.default_ttl, json.dumps(value))
+            except Exception:
+                pass
+        self._cache[key] = value
+        self._timestamps[key] = time.time()
+    
+    def delete(self, key):
+        if USE_REDIS and redis_client:
+            try:
+                redis_client.delete(key)
+            except Exception:
+                pass
+        if key in self._cache:
+            del self._cache[key]
+            del self._timestamps[key]
+    
+    def clear(self):
+        if USE_REDIS and redis_client:
+            try:
+                redis_client.flushdb()
+            except Exception:
+                pass
+        self._cache.clear()
+        self._timestamps.clear()
+
+
+cache = SimpleCache(default_ttl=300)
 
 
 # --- Models ---
@@ -574,15 +655,20 @@ def dashboard_api():
 
             
 @app.route("/api/admin/dashboard", methods=["GET"])
+@login_required
 def admin_dashboard_api():
-    if not current_user.is_authenticated or getattr(current_user, 'role', None) != "admin":
+    if current_user.role != "admin":
         return jsonify({
             "success": False,
             "message": "Authentication required. Please log in as admin."
-        }), 401
+        }), 403
 
     session = SessionLocal()
     try:
+        cached = cache.get("admin:dashboard")
+        if cached:
+            return jsonify(cached), 200
+
         total_doctors = session.query(Doctor).count()
         total_patients = session.query(Patient).count()
         total_appointments = session.query(Appointment).count()
@@ -599,7 +685,7 @@ def admin_dashboard_api():
 
         departments = session.query(Department).order_by(Department.name).all()
 
-        return jsonify({
+        response_data = {
             "success": True,
             "stats": {
                 "doctors": total_doctors,
@@ -610,7 +696,7 @@ def admin_dashboard_api():
                 {
                     "id": d.id,
                     "name": d.user.name,
-                    "specialization": d.department.name
+                    "specialization": d.department.name if d.department else "General"
                 } for d in doctors
             ],
             "recent_patients": [
@@ -622,10 +708,10 @@ def admin_dashboard_api():
             "recent_appointments": [
                 {
                     "id": a.id,
-                    "doctor": a.doctor.user.name,
-                    "patient": a.patient.user.name,
-                    "date": str(a.appoint_date),
-                    "time": str(a.appoint_time),
+                    "doctor": a.doctor.user.name if a.doctor and a.doctor.user else "N/A",
+                    "patient": a.patient.user.name if a.patient and a.patient.user else "N/A",
+                    "date": str(a.appoint_date) if a.appoint_date else "N/A",
+                    "time": str(a.appoint_time) if a.appoint_time else "N/A",
                     "status": a.status
                 } for a in appointments
             ],
@@ -635,7 +721,11 @@ def admin_dashboard_api():
                     "name": d.name
                 } for d in departments
             ]
-        }), 200
+        }
+
+        cache.set("admin:dashboard", response_data, ttl=60)
+
+        return jsonify(response_data), 200
 
     except Exception as e:
         print(f"[ERROR] Admin dashboard: {e}")
@@ -858,21 +948,23 @@ def patient_doctor_search():
         specialization = request.args.get("specialization", "").strip()
         department_filter = request.args.get("department", "").strip()
 
+        cache_key = f"patient:doctors:search={search_query}&spec={specialization}&dept={department_filter}"
+        cached = cache.get(cache_key)
+        if cached:
+            return jsonify(cached), 200
+
         query = session.query(Doctor, User, Department).join(
             User, Doctor.uid == User.id
         ).outerjoin(
             Department, Doctor.depid == Department.id
         ).filter(Doctor.status == "active")
 
-        # Search by name
         if search_query:
             query = query.filter(User.name.ilike(f"%{search_query}%"))
 
-        # Filter by specialization
         if specialization:
             query = query.filter(Doctor.specialization.ilike(f"%{specialization}%"))
 
-        # Filter by department (case-insensitive)
         if department_filter:
             query = query.filter(Department.name.ilike(f"%{department_filter}%"))
 
@@ -899,7 +991,7 @@ def patient_doctor_search():
             for d in departments
         ]
 
-        return jsonify({
+        response_data = {
             "success": True,
             "doctors": doctors,
             "departments": departments_list,
@@ -908,7 +1000,11 @@ def patient_doctor_search():
                 "specialization": specialization,
                 "department": department_filter
             }
-        }), 200
+        }
+
+        cache.set(cache_key, response_data, ttl=120)
+
+        return jsonify(response_data), 200
 
     except Exception as e:
         print(f"[ERROR] patient_doctor_search:", e)
@@ -954,6 +1050,8 @@ def patient_appointments():
             {
                 "id": apt.id,
                 "doctor_name": apt.doctor.user.name if apt.doctor and apt.doctor.user else "N/A",
+                "specialization": apt.doctor.specialization if apt.doctor else "N/A",
+                "department": apt.doctor.department.name if apt.doctor and apt.doctor.department else "General",
                 "date": apt.appoint_date.strftime("%Y-%m-%d") if apt.appoint_date else None,
                 "time": apt.appoint_time.strftime("%H:%M") if apt.appoint_time else None,
                 "status": apt.status,
@@ -1936,11 +2034,17 @@ def admin_appointments():
         filter_status = request.args.get("status", "all")
         filter_date = request.args.get("date", "all")
 
+        # First check if any appointments exist at all
+        total_apt = session.query(Appointment).count()
+        print(f"[APPOINTMENTS] Total appointments in DB: {total_apt}")
+
         query = session.query(Appointment).join(
             Doctor, Appointment.docid == Doctor.id
         ).join(
             Patient, Appointment.patid == Patient.id
         )
+
+        print(f"[APPOINTMENTS] Query built, filter_status={filter_status}, filter_date={filter_date}")
 
         if filter_status != "all":
             query = query.filter(Appointment.status == filter_status)
@@ -1955,6 +2059,8 @@ def admin_appointments():
             Appointment.appoint_date.desc(),
             Appointment.appoint_time.desc()
         ).all()
+
+        print(f"[APPOINTMENTS] Found {len(appointments)} appointments")
 
         appointments_list = [
             {
@@ -1981,6 +2087,8 @@ def admin_appointments():
 
     except Exception as e:
         print(f"[ERROR] Admin appointments: {e}")
+        import traceback
+        traceback.print_exc()
 
         return jsonify({
             "success": False,
@@ -1990,12 +2098,12 @@ def admin_appointments():
     finally:
         session.close()
 
-
+@app.route("/api/doctor/search", methods=["GET"])
 @app.route("/api/admin/search", methods=["GET"])
 @login_required
 def admin_search():
 
-    if current_user.role != "admin":
+    if current_user.role not in ["admin", "doctor"]:
         return jsonify({
             "success": False,
             "message": "Access denied"
@@ -2004,61 +2112,194 @@ def admin_search():
     session = SessionLocal()
 
     try:
-        query_param = request.args.get("query", "").strip()
+        query_param = request.args.get("q", "").strip()
+        search_type = request.args.get("type", "all").strip()
+        status_filter = request.args.get("status", "").strip()
+        department_filter = request.args.get("department", "").strip()
+        specialization_filter = request.args.get("specialization", "").strip()
+        date_from = request.args.get("date_from", "").strip()
+        date_to = request.args.get("date_to", "").strip()
+        gender_filter = request.args.get("gender", "").strip()
+        blood_group_filter = request.args.get("blood_group", "").strip()
+        appointment_status_filter = request.args.get("appointment_status", "").strip()
+        doctor_filter = request.args.get("doctor", "").strip()
 
-        doctors = session.query(Doctor, User, Department).join(
-            User, Doctor.uid == User.id
-        ).outerjoin(
-            Department, Doctor.depid == Department.id
-        )
+        cache_key = f"admin:search:q={query_param}&type={search_type}&status={status_filter}&dept={department_filter}&spec={specialization_filter}&df={date_from}&dt={date_to}&gender={gender_filter}&bg={blood_group_filter}&aptstatus={appointment_status_filter}&doc={doctor_filter}"
+        cached = cache.get(cache_key)
+        if cached:
+            return jsonify(cached), 200
 
-        patients = session.query(Patient, User).join(
-            User, Patient.uid == User.id
-        )
+        doctors_results = []
+        patients_results = []
+        appointments_results = []
 
-        if query_param:
-            doctors = doctors.filter(
-                (User.name.ilike(f"%{query_param}%")) |
-                (Doctor.specialization.ilike(f"%{query_param}%"))
-            )
+        if not query_param and not any([status_filter, department_filter, specialization_filter,
+            date_from, date_to, gender_filter, blood_group_filter, appointment_status_filter, doctor_filter]):
+            return jsonify({
+                "success": True,
+                "results": [],
+                "doctors": [],
+                "patients": [],
+                "appointments": []
+            }), 200
 
-            patients = patients.filter(
-                (User.name.ilike(f"%{query_param}%")) |
-                (User.username.ilike(f"%{query_param}%"))
-            )
+        print(f"[SEARCH] Query: {query_param}, Type: {search_type}, Filters: status={status_filter}, dept={department_filter}")
 
-        doctors_list = [
-            {
-                "id": d.id,
-                "name": u.name,
-                "username": u.username,
-                "department": dept.name if dept else "General",
-                "specialization": d.specialization,
-                "status": d.status
-            }
-            for d, u, dept in doctors.all()
-        ]
+        if search_type in ["all", "doctors"]:
+            try:
+                doctors_query = session.query(Doctor, User).join(
+                    User, Doctor.uid == User.id
+                ).outerjoin(Department, Doctor.depid == Department.id)
+                
+                if query_param:
+                    doctors_query = doctors_query.filter(
+                        (User.name.ilike(f"%{query_param}%")) |
+                        (Doctor.specialization.ilike(f"%{query_param}%")) |
+                        (User.username.ilike(f"%{query_param}%"))
+                    )
+                
+                if status_filter:
+                    doctors_query = doctors_query.filter(Doctor.status == status_filter)
+                if department_filter:
+                    doctors_query = doctors_query.filter(Department.id == int(department_filter))
+                if specialization_filter:
+                    doctors_query = doctors_query.filter(Doctor.specialization.ilike(f"%{specialization_filter}%"))
 
-        patients_list = [
-            {
-                "id": p.id,
-                "name": u.name,
-                "username": u.username,
-                "gender": p.gender,
-                "is_active": p.is_active
-            }
-            for p, u in patients.all()
-        ]
+                doctors = doctors_query.all()
 
-        return jsonify({
+                print(f"[SEARCH] Found {len(doctors)} doctors")
+
+                doctors_results = [
+                    {
+                        "id": d.id,
+                        "name": u.name,
+                        "username": u.username,
+                        "department": dept.name if dept else "General",
+                        "specialization": d.specialization,
+                        "qualification": d.qualification or "N/A",
+                        "experience": d.experience or 0,
+                        "status": d.status,
+                        "type": "doctor"
+                    }
+                    for d, u, *rest in doctors
+                    for dept in [rest[0] if rest else None]
+                ]
+            except Exception as e:
+                print(f"[SEARCH] Doctor error: {e}")
+
+        if search_type in ["all", "patients"]:
+            try:
+                patients_query = session.query(Patient, User).join(
+                    User, Patient.uid == User.id
+                )
+
+                if query_param:
+                    patients_query = patients_query.filter(
+                        (User.name.ilike(f"%{query_param}%")) |
+                        (User.username.ilike(f"%{query_param}%")) |
+                        (Patient.blood_group.ilike(f"%{query_param}%"))
+                    )
+                
+                if status_filter:
+                    is_active = True if status_filter == "active" else False
+                    patients_query = patients_query.filter(Patient.is_active == is_active)
+                if gender_filter:
+                    patients_query = patients_query.filter(Patient.gender == gender_filter)
+                if blood_group_filter:
+                    patients_query = patients_query.filter(Patient.blood_group == blood_group_filter)
+
+                patients = patients_query.all()
+
+                print(f"[SEARCH] Found {len(patients)} patients")
+
+                patients_results = [
+                    {
+                        "id": p.id,
+                        "name": u.name,
+                        "username": u.username,
+                        "gender": p.gender or "N/A",
+                        "blood_group": p.blood_group or "N/A",
+                        "is_active": p.is_active,
+                        "type": "patient"
+                    }
+                    for p, u in patients
+                ]
+            except Exception as e:
+                print(f"[SEARCH] Patient error: {e}")
+
+        if search_type in ["all", "appointments"]:
+            try:
+                appointments_query = session.query(
+                    Appointment, 
+                    Patient, 
+                    User, 
+                    Doctor,
+                    User
+                ).join(
+                    Patient, Appointment.patid == Patient.id
+                ).join(
+                    User, Patient.uid == User.id
+                ).join(
+                    Doctor, Appointment.docid == Doctor.id
+                ).join(
+                    User, Doctor.uid == User.label("doc_user_id")
+                )
+
+                if query_param:
+                    appointments_query = appointments_query.filter(
+                        (Appointment.appointment_number.ilike(f"%{query_param}%")) |
+                        (User.name.ilike(f"%{query_param}%")) |
+                        (Appointment.reason_for_visit.ilike(f"%{query_param}%"))
+                    )
+                
+                if appointment_status_filter:
+                    appointments_query = appointments_query.filter(Appointment.status == appointment_status_filter)
+                if doctor_filter:
+                    appointments_query = appointments_query.filter(Doctor.id == int(doctor_filter))
+                if date_from:
+                    from datetime import datetime
+                    appointments_query = appointments_query.filter(Appointment.appoint_date >= datetime.strptime(date_from, "%Y-%m-%d").date())
+                if date_to:
+                    from datetime import datetime
+                    appointments_query = appointments_query.filter(Appointment.appoint_date <= datetime.strptime(date_to, "%Y-%m-%d").date())
+
+                appointments = appointments_query.all()
+
+                print(f"[SEARCH] Found {len(appointments)} appointments")
+
+                appointments_results = [
+                    {
+                        "id": apt.id,
+                        "appointment_number": apt.appointment_number,
+                        "patient_name": pat_user.name,
+                        "doctor_name": doc_user.name if hasattr(doc_user, 'name') else "N/A",
+                        "date": apt.appoint_date.strftime("%Y-%m-%d") if apt.appoint_date else "N/A",
+                        "time": apt.appoint_time.strftime("%H:%M") if apt.appoint_time else "N/A",
+                        "status": apt.status,
+                        "reason": apt.reason_for_visit or "N/A",
+                        "type": "appointment"
+                    }
+                    for apt, pat, pat_user, doc, doc_user in appointments
+                ]
+            except Exception as e:
+                print(f"[SEARCH] Appointment error: {e}")
+
+        response_data = {
             "success": True,
-            "query": query_param,
-            "doctors": doctors_list,
-            "patients": patients_list
-        }), 200
+            "results": doctors_results + patients_results + appointments_results,
+            "doctors": doctors_results,
+            "patients": patients_results,
+            "appointments": appointments_results
+        }
+
+        cache.set(cache_key, response_data, ttl=60)
+
+        return jsonify(response_data), 200
 
     except Exception as e:
         print(f"[ERROR] Admin search: {e}")
+        import traceback
+        traceback.print_exc()
 
         return jsonify({
             "success": False,
@@ -2071,6 +2312,51 @@ def admin_search():
 @app.route("/api/admin/departments", methods=["GET"])
 @login_required
 def admin_departments():
+
+    if current_user.role != "admin":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        user = session.query(User).filter_by(id=current_user.id).first()
+
+        total_doctors = session.query(Doctor).count()
+        total_patients = session.query(Patient).count()
+        total_appointments = session.query(Appointment).count()
+
+        return jsonify({
+            "success": True,
+            "profile": {
+                "id": current_user.id,
+                "name": user.name if user else "",
+                "username": user.username if user else "",
+                "role": "admin"
+            },
+            "stats": {
+                "total_appointments": total_appointments,
+                "upcoming_appointments": 0,
+                "total_patients": total_patients
+            }
+        }), 200
+
+    except Exception as e:
+        print("[ERROR] admin_profile:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading profile"
+        }), 500
+
+    finally:
+        session.close()
+
+@app.route("/api/admin/departments/list", methods=["GET"])
+@login_required
+def admin_departments_list():
 
     if current_user.role != "admin":
         return jsonify({
@@ -3148,6 +3434,203 @@ def update_doctor_availability():
     finally:
         session.close()
 
+@app.route("/api/doctor/availability/add", methods=["POST"])
+@login_required
+def add_doctor_availability():
+
+    if current_user.role != "doctor":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
+        data = request.get_json()
+        date_str = data.get("date")
+        start_time_str = data.get("start_time")
+        end_time_str = data.get("end_time")
+        notes = data.get("notes", "")
+
+        if not date_str or not start_time_str or not end_time_str:
+            return jsonify({
+                "success": False,
+                "message": "Date and time are required"
+            }), 400
+
+        current_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        start_time = datetime.strptime(start_time_str, "%H:%M").time()
+        end_time = datetime.strptime(end_time_str, "%H:%M").time()
+
+        availability = DoctorAvailability(
+            docid=doctor.id,
+            available_date=current_date,
+            start_time=start_time,
+            end_time=end_time,
+            available=True,
+            notes=notes
+        )
+        session.add(availability)
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Availability added successfully"
+        }), 201
+
+    except Exception as e:
+        session.rollback()
+        print("[ERROR] add_doctor_availability:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error adding availability"
+        }), 500
+
+    finally:
+        session.close()
+
+@app.route("/api/doctor/availability/<int:availability_id>/delete", methods=["DELETE"])
+@login_required
+def delete_doctor_availability(availability_id):
+
+    if current_user.role != "doctor":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        doctor = session.query(Doctor).filter_by(uid=current_user.id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor profile not found"
+            }), 404
+
+        availability = session.query(DoctorAvailability).filter_by(
+            id=availability_id,
+            docid=doctor.id
+        ).first()
+
+        if not availability:
+            return jsonify({
+                "success": False,
+                "message": "Availability not found"
+            }), 404
+
+        session.delete(availability)
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Availability deleted successfully"
+        }), 200
+
+    except Exception as e:
+        session.rollback()
+        print("[ERROR] delete_doctor_availability:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error deleting availability"
+        }), 500
+
+    finally:
+        session.close()
+
+@app.route("/api/doctor/<int:doctor_id>/availability", methods=["GET"])
+@login_required
+def get_doctor_availability_by_date(doctor_id):
+
+    if current_user.role not in ["patient", "admin"]:
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        doctor = session.query(Doctor).filter_by(id=doctor_id).first()
+
+        if not doctor:
+            return jsonify({
+                "success": False,
+                "message": "Doctor not found"
+            }), 404
+
+        date_str = request.args.get("date")
+        if not date_str:
+            return jsonify({
+                "success": False,
+                "message": "Date is required"
+            }), 400
+
+        appointment_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
+        availability = session.query(DoctorAvailability).filter_by(
+            docid=doctor.id,
+            available_date=appointment_date,
+            available=True
+        ).first()
+
+        if not availability:
+            return jsonify({
+                "success": True,
+                "slots": []
+            }), 200
+
+        start_time = availability.start_time
+        end_time = availability.end_time
+
+        slots = []
+        current_time = start_time
+        while current_time < end_time:
+            slots.append(current_time.strftime("%H:%M"))
+            hour = current_time.hour + 1
+            minute = current_time.minute
+            if minute == 30:
+                hour += 1
+                minute = 0
+            current_time = current_time.replace(hour=hour % 24, minute=minute)
+
+        existing = session.query(Appointment).filter_by(
+            docid=doctor.id,
+            appoint_date=appointment_date
+        ).filter(Appointment.status == "Booked").all()
+
+        booked_times = [a.appoint_time.strftime("%H:%M") for a in existing if a.appoint_time]
+        slots = [s for s in slots if s not in booked_times]
+
+        return jsonify({
+            "success": True,
+            "slots": slots
+        }), 200
+
+    except Exception as e:
+        print("[ERROR] get_doctor_availability_by_date:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error loading availability"
+        }), 500
+
+    finally:
+        session.close()
+
 
 @app.route("/api/doctor/treatments", methods=["GET"])
 @login_required
@@ -3371,12 +3854,16 @@ def get_doctor_profile():
         return jsonify({
             "success": True,
             "profile": {
+                "id": doctor.id,
                 "name": user.name if user else "",
+                "username": user.username if user else "",
+                "license_number": doctor.license_number,
                 "specialization": doctor.specialization,
                 "qualification": doctor.qualification,
                 "experience": doctor.experience,
                 "gender": doctor.gender,
-                "department": department.name if department else None
+                "department": department.name if department else None,
+                "status": doctor.status
             },
             "stats": {
                 "total_appointments": total_appointments,
@@ -3499,7 +3986,9 @@ def get_patient_profile():
         return jsonify({
             "success": True,
             "profile": {
+                "id": patient.id,
                 "name": user.name if user else "",
+                "username": user.username if user else "",
                 "gender": patient.gender,
                 "dob": patient.dob.strftime("%Y-%m-%d") if patient.dob else None,
                 "blood_group": patient.blood_group,
@@ -3593,11 +4082,136 @@ def update_patient_profile():
     finally:
         session.close()
 
+@app.route("/api/patient/medical-history/update", methods=["POST"])
+@login_required
+def update_patient_medical_history():
+
+    if current_user.role != "patient":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        patient = session.query(Patient).filter_by(uid=current_user.id).first()
+
+        if not patient:
+            return jsonify({
+                "success": False,
+                "message": "Patient profile not found"
+            }), 404
+
+        data = request.get_json()
+        allergies = data.get("allergies", "")
+        chronic_conditions = data.get("chronic_conditions", "")
+        current_medications = data.get("current_medications", "")
+        previous_surgeries = data.get("previous_surgeries", "")
+
+        medical_history = session.query(MedicalHistory).filter_by(patid=patient.id).first()
+
+        if medical_history:
+            medical_history.allergies = allergies
+            medical_history.chronic_conditions = chronic_conditions
+            medical_history.current_medications = current_medications
+            medical_history.previous_surgeries = previous_surgeries
+        else:
+            medical_history = MedicalHistory(
+                patid=patient.id,
+                allergies=allergies,
+                chronic_conditions=chronic_conditions,
+                current_medications=current_medications,
+                previous_surgeries=previous_surgeries
+            )
+            session.add(medical_history)
+
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Medical history updated successfully"
+        }), 200
+
+    except Exception as e:
+        session.rollback()
+        print("[ERROR] update_patient_medical_history:", e)
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating medical history"
+        }), 500
+
+    finally:
+        session.close()
+
+
+@app.route("/api/patient/treatments/export", methods=["GET"])
+@login_required
+def export_patient_treatments():
+    """Trigger async export of patient treatment history as CSV"""
+    
+    if current_user.role != "patient":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+    
+    session = SessionLocal()
+    
+    try:
+        patient = session.query(Patient).filter_by(uid=current_user.id).first()
+        
+        if not patient:
+            return jsonify({
+                "success": False,
+                "message": "Patient not found"
+            }), 404
+        
+        try:
+            from background_jobs import export_treatment_csv
+            task = export_treatment_csv.delay(patient.id)
+            return jsonify({
+                "success": True,
+                "message": "Export started. You will receive an email when ready.",
+                "task_id": task.id
+            }), 202
+        except Exception as e:
+            print(f"[ERROR] Celery task failed: {e}")
+            return jsonify({
+                "success": False,
+                "message": "Could not start export job"
+            }), 500
+        
+    finally:
+        session.close()
+
+
+def start_background_jobs():
+    """Start Celery beat scheduler for background jobs"""
+    import subprocess
+    import os
+    
+    celery_cmd = [
+        os.environ.get('CELERY_BIN', 'celery'),
+        '-A', 'background_jobs',
+        'beat',
+        '--loglevel=info'
+    ]
+    
+    try:
+        subprocess.Popen(celery_cmd, cwd=os.getcwd())
+        print("[JOBS] Celery beat scheduler started")
+    except Exception as e:
+        print(f"[JOBS] Could not start Celery: {e}")
+
+
 # --- Initialization ---
 def initialize_app():
     Base.metadata.create_all(engine)
     create_super_admin()
     create_standard_departments()
+    start_background_jobs()
 
 
 if __name__ == "__main__":

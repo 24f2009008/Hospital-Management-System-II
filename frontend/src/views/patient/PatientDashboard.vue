@@ -101,10 +101,9 @@
               </router-link>
             </div>
             <div class="col-md-3 col-sm-6">
-              <router-link to="/patient/treatments" 
-                class="btn btn-outline-info w-100 py-3">
-                <i class="fas fa-file-medical me-2"></i>Medical History
-              </router-link>
+              <button @click="exportTreatments" class="btn btn-outline-info w-100 py-3">
+                <i class="fas fa-file-export me-2"></i>Export History
+              </button>
             </div>
             <div class="col-md-3 col-sm-6">
               <router-link to="/patient/profile" 
@@ -241,10 +240,33 @@ const loadDashboard = async () => {
 
 const cancelAppointment = async (id) => {
   if (!confirm('Are you sure you want to cancel this appointment?')) return
-  // TODO: Implement cancel API call if needed
   console.log('Cancel appointment:', id)
-  // Refresh dashboard after cancel
   await loadDashboard()
+}
+
+const exportTreatments = async () => {
+  try {
+    const res = await fetch('http://127.0.0.1:5000/api/patient/treatments/export', {
+      credentials: 'include'
+    })
+    if (res.ok) {
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `treatment_history_${new Date().toISOString().split('T')[0]}.csv`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      a.remove()
+      alert('Treatment history exported successfully!')
+    } else {
+      alert('Failed to export treatment history')
+    }
+  } catch (e) {
+    console.error('Export error:', e)
+    alert('Error exporting treatments')
+  }
 }
 
 onMounted(() => {

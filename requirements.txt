@@ -4,3 +4,7 @@ flask_login
 flask-restful
 werkzeug
 flask-cors
+redis
+celery
+requests
+schedule
