@@ -160,10 +160,12 @@
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
+const authStore = useAuthStore()
 
-const isAdmin = computed(() => localStorage.getItem('role') === 'admin')
+const isAdmin = computed(() => authStore.role === 'admin' || JSON.parse(localStorage.getItem('user') || '{}').role === 'admin')
 
 const query = ref('')
 const doctors = ref([])
@@ -196,10 +198,8 @@ const loadResults = async () => {
 
   try {
     console.log('Searching for:', query.value)
-    const role = localStorage.getItem('role')
-    const endpoint = role === 'admin'
-      ? '/api/admin/search'
-      : '/api/doctor/search'
+    const role = authStore.role || JSON.parse(localStorage.getItem('user') || '{}').role || 'admin'
+    const endpoint = role === 'admin' ? '/api/admin/search' : '/api/doctor/search'
 
     const url = `${API_BASE}${endpoint}?q=${encodeURIComponent(query.value)}`
     console.log('URL:', url)

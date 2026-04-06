@@ -1,25 +1,20 @@
 <template>
   <div class="container-fluid">
-    <!-- Page Header -->
-    <div class="page-header mb-4">
-      <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div class="page-header">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
           <h2 class="mb-1">
-            <i class="fas fa-calendar-check me-2" style="color: var(--primary);"></i>
-            Manage Appointments
+            <i class="fas fa-calendar-check me-2"></i>My Appointments
           </h2>
-          <p class="text-muted mb-0">View and manage all appointments in the system</p>
+          <p class="text-muted mb-0">View and manage your appointments</p>
         </div>
       </div>
     </div>
 
     <!-- Filters -->
     <div class="card mb-4">
-      <div class="card-header">
-        <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filter Appointments</h5>
-      </div>
-      <div class="card-body p-4">
-        <div class="row g-3">
+      <div class="card-body">
+        <div class="row g-3 align-items-end">
           <div class="col-md-4">
             <label class="form-label">Status</label>
             <select v-model="filterStatus" @change="loadAppointments" class="form-select">
@@ -37,30 +32,25 @@
               <option value="past">Past</option>
             </select>
           </div>
-          <div class="col-md-4 d-flex align-items-end">
+          <div class="col-md-4">
             <button @click="resetFilters" class="btn btn-outline-secondary w-100">
-              <i class="fas fa-redo me-2"></i>Reset Filters
+              <i class="fas fa-redo me-2"></i>Reset
             </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Appointments Table -->
+    <!-- Table -->
     <div class="card">
-      <div class="card-header">
-        <div class="d-flex justify-content-between align-items-center">
-          <h5 class="mb-0">
-            <i class="fas fa-calendar-check me-2"></i>All Appointments
-          </h5>
-          <span class="badge bg-primary">{{ appointments.length }} Total</span>
-        </div>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-list me-2"></i>Appointments</h5>
+        <span class="badge bg-primary">{{ appointments.length }} Total</span>
       </div>
-
       <div class="card-body p-0">
         <div v-if="loading" class="text-center py-5">
-          <div class="spinner-border text-primary" role="status"></div>
-          <p class="mt-3">Loading appointments...</p>
+          <div class="spinner-border" role="status"></div>
+          <p class="mt-3 text-muted">Loading...</p>
         </div>
 
         <div v-else-if="error" class="alert alert-danger m-3">
@@ -70,137 +60,119 @@
 
         <div v-else class="table-responsive">
           <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
+            <thead>
               <tr>
-                <th>Appointment #</th>
+                <th>Appt #</th>
                 <th>Patient</th>
-                <th class="d-none d-xl-table-cell">Patient ID</th>
-                <th class="d-none d-md-table-cell">Doctor</th>
-                <th class="d-none d-lg-table-cell">Date</th>
-                <th class="d-none d-md-table-cell">Time</th>
+                <th>Date &amp; Time</th>
                 <th>Status</th>
-                <th class="d-none d-xl-table-cell">Reason</th>
+                <th>Reason</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              <template v-for="apt in appointments" :key="apt.id">
-                <tr>
-                  <td><strong>{{ apt.appointment_number || `APT${String(apt.id).padStart(8, '0')}` }}</strong></td>
-                  <td>{{ apt.patient_name }}</td>
-                  <td class="d-none d-xl-table-cell">{{ apt.patient_id ? `PAT${String(apt.patient_id).padStart(6, '0')}` : '-' }}</td>
-                  <td class="d-none d-md-table-cell">{{ apt.doctor_name }}</td>
-                  <td class="d-none d-lg-table-cell">{{ apt.date }}</td>
-                  <td class="d-none d-md-table-cell">{{ apt.time }}</td>
-                  <td>
-                    <span class="badge" :class="getStatusClass(apt.status)">
-                      {{ apt.status }}
-                    </span>
-                  </td>
-                  <td class="d-none d-xl-table-cell">
-                    <small>{{ truncateText(apt.reason, 30) }}</small>
-                  </td>
-                  <td>
-                    <button @click="viewAppointment(apt)" class="btn btn-sm btn-outline-info">
+              <tr v-for="apt in appointments" :key="apt.id">
+                <td><strong>{{ apt.appointment_number }}</strong></td>
+                <td>{{ apt.patient_name }}</td>
+                <td>
+                  <div>{{ apt.date }}</div>
+                  <small class="text-muted">{{ apt.time }}</small>
+                </td>
+                <td>
+                  <span class="badge" :class="getStatusClass(apt.status)">{{ apt.status }}</span>
+                </td>
+                <td><small>{{ truncateText(apt.reason, 30) }}</small></td>
+                <td>
+                  <div class="d-flex gap-1">
+                    <button @click="viewAppointment(apt)" class="btn btn-sm btn-outline-info" title="View">
                       <i class="fas fa-eye"></i>
                     </button>
-                  </td>
-                </tr>
-              </template>
+                    <button v-if="apt.status === 'Booked'"
+                      @click="markComplete(apt.id)" class="btn btn-sm btn-outline-success" title="Mark Complete">
+                      <i class="fas fa-check"></i>
+                    </button>
+                    <button v-if="apt.status === 'Booked'"
+                      @click="markCancel(apt.id)" class="btn btn-sm btn-outline-danger" title="Cancel">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!loading && appointments.length === 0">
+                <td colspan="6" class="text-center py-5 text-muted">
+                  <i class="fas fa-calendar-check fa-3x mb-3 opacity-25 d-block"></i>
+                  No appointments found
+                </td>
+              </tr>
             </tbody>
           </table>
-        </div>
-
-        <!-- Empty State -->
-        <div v-if="!loading && !error && appointments.length === 0" class="text-center text-muted py-5">
-          <i class="fas fa-calendar-check fa-4x mb-3 opacity-25"></i>
-          <h5>No Appointments Found</h5>
-          <p>No appointments match your current filters.</p>
-          <button @click="resetFilters" class="btn btn-primary mt-3">
-            <i class="fas fa-redo me-2"></i>View All Appointments
-          </button>
         </div>
       </div>
     </div>
 
-    <!-- Appointment Details Modal -->
+    <!-- Details Modal -->
     <div v-if="showModal" class="modal-backdrop" @click.self="closeModal">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">
-              <i class="fas fa-info-circle me-2"></i>Appointment Details
-            </h5>
+            <h5 class="modal-title"><i class="fas fa-info-circle me-2"></i>Appointment Details</h5>
             <button type="button" class="btn-close" @click="closeModal"></button>
           </div>
-          <div class="modal-body">
-            <div class="row">
-              <!-- Patient Information -->
+          <div class="modal-body" v-if="selectedAppointment">
+            <div class="row g-3">
               <div class="col-md-6">
-                <h6 class="text-muted mb-3">Patient Information</h6>
-                <table class="table table-sm table-borderless">
-                  <tbody>
-                    <tr>
-                      <th width="40%">Name:</th>
-                      <td>{{ selectedAppointment?.patient_name }}</td>
-                    </tr>
-                    <tr v-if="selectedAppointment?.patient_id">
-                      <th>Patient ID:</th>
-                      <td>PAT{{ String(selectedAppointment?.patient_id).padStart(6, '0') }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div class="detail-group">
+                  <label>Patient</label>
+                  <p>{{ selectedAppointment.patient_name }}</p>
+                </div>
+                <div class="detail-group">
+                  <label>Date &amp; Time</label>
+                  <p>{{ selectedAppointment.date }} at {{ selectedAppointment.time }}</p>
+                </div>
               </div>
-              
-              <!-- Doctor Information -->
               <div class="col-md-6">
-                <h6 class="text-muted mb-3">Doctor Information</h6>
-                <table class="table table-sm table-borderless">
-                  <tbody>
-                    <tr>
-                      <th width="40%">Name:</th>
-                      <td>{{ selectedAppointment?.doctor_name }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div class="detail-group">
+                  <label>Status</label>
+                  <p><span class="badge" :class="getStatusClass(selectedAppointment.status)">{{ selectedAppointment.status }}</span></p>
+                </div>
+                <div class="detail-group">
+                  <label>Reason</label>
+                  <p>{{ selectedAppointment.reason || '—' }}</p>
+                </div>
               </div>
             </div>
 
-            <hr>
-
-            <!-- Appointment Information -->
-            <div class="row">
-              <div class="col-12">
-                <h6 class="text-muted mb-3">Appointment Information</h6>
-                <table class="table table-sm table-borderless">
-                  <tbody>
-                    <tr>
-                      <th width="20%">Appointment #:</th>
-                      <td>{{ selectedAppointment?.appointment_number || `APT${String(selectedAppointment?.id).padStart(8, '0')}` }}</td>
-                    </tr>
-                    <tr>
-                      <th>Date & Time:</th>
-                      <td>{{ selectedAppointment?.date }} at {{ selectedAppointment?.time }}</td>
-                    </tr>
-                    <tr>
-                      <th>Status:</th>
-                      <td>
-                        <span class="badge" :class="getStatusClass(selectedAppointment?.status)">
-                          {{ selectedAppointment?.status }}
-                        </span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th>Reason for Visit:</th>
-                      <td>{{ selectedAppointment?.reason || 'N/A' }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+            <!-- Diagnose form for Booked appointments -->
+            <div v-if="selectedAppointment.status === 'Booked'" class="mt-4">
+              <hr>
+              <h6 class="fw-semibold mb-3"><i class="fas fa-stethoscope me-2 text-primary"></i>Add Diagnosis &amp; Treatment</h6>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Diagnosis <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" v-model="diagnoseForm.diagnosis" placeholder="Enter diagnosis">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Follow-up Date</label>
+                  <input type="date" class="form-control" v-model="diagnoseForm.next_visit_date">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Prescription</label>
+                  <textarea class="form-control" v-model="diagnoseForm.prescription" rows="2" placeholder="Medications..."></textarea>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Notes</label>
+                  <textarea class="form-control" v-model="diagnoseForm.notes" rows="2" placeholder="Additional notes..."></textarea>
+                </div>
+              </div>
+              <div class="mt-3">
+                <button class="btn btn-primary" @click="saveDiagnosis" :disabled="saving">
+                  <i class="fas fa-save me-2"></i>{{ saving ? 'Saving...' : 'Save &amp; Complete' }}
+                </button>
               </div>
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="closeModal">Close</button>
+            <button class="btn btn-secondary" @click="closeModal">Close</button>
           </div>
         </div>
       </div>
@@ -212,156 +184,114 @@
 import { ref, onMounted } from 'vue'
 
 const API_BASE = 'http://127.0.0.1:5000'
-
 const appointments = ref([])
 const loading = ref(false)
 const error = ref(null)
-
 const filterStatus = ref('all')
 const filterDate = ref('all')
-
 const showModal = ref(false)
 const selectedAppointment = ref(null)
+const saving = ref(false)
+
+const diagnoseForm = ref({ diagnosis: '', prescription: '', notes: '', next_visit_date: '' })
 
 const loadAppointments = async () => {
   loading.value = true
   error.value = null
-
   try {
     const params = new URLSearchParams()
     if (filterStatus.value !== 'all') params.append('status', filterStatus.value)
     if (filterDate.value !== 'all') params.append('date', filterDate.value)
-
-    const url = `${API_BASE}/api/doctor/appointments${params.toString() ? '?' + params.toString() : ''}`
-
-    const res = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' }
+    const res = await fetch(`${API_BASE}/api/doctor/appointments?${params}`, {
+      credentials: 'include'
     })
-
     const data = await res.json()
-
-    if (!res.ok || !data.success) {
-      throw new Error(data.message || 'Failed to load appointments')
-    }
-
+    if (!data.success) throw new Error(data.message)
     appointments.value = data.appointments || []
   } catch (err) {
     error.value = err.message
-    console.error('Error loading appointments:', err)
   } finally {
     loading.value = false
   }
 }
 
-const getStatusClass = (status) => {
-  switch (status?.toLowerCase()) {
-    case 'booked': return 'bg-warning text-dark'
-    case 'completed': return 'bg-success'
-    case 'cancelled': return 'bg-danger'
-    default: return 'bg-secondary'
-  }
-}
+const getStatusClass = (s) => ({
+  'Booked': 'bg-warning text-dark',
+  'Completed': 'bg-success',
+  'Cancelled': 'bg-danger'
+}[s] || 'bg-secondary')
 
-const truncateText = (text, maxLength) => {
-  if (!text) return 'N/A'
-  return text.length > maxLength ? text.substring(0, maxLength) + '...' : text
-}
+const truncateText = (t, n) => !t ? '—' : t.length > n ? t.slice(0, n) + '...' : t
 
-const resetFilters = () => {
-  filterStatus.value = 'all'
-  filterDate.value = 'all'
-  loadAppointments()
-}
+const resetFilters = () => { filterStatus.value = 'all'; filterDate.value = 'all'; loadAppointments() }
 
-const viewAppointment = (appointment) => {
-  selectedAppointment.value = appointment
+const viewAppointment = (apt) => {
+  selectedAppointment.value = apt
+  diagnoseForm.value = { diagnosis: '', prescription: '', notes: '', next_visit_date: '' }
   showModal.value = true
 }
 
-const closeModal = () => {
-  showModal.value = false
-  selectedAppointment.value = null
+const closeModal = () => { showModal.value = false; selectedAppointment.value = null }
+
+const markComplete = async (id) => {
+  if (!confirm('Mark this appointment as completed?')) return
+  try {
+    const res = await fetch(`${API_BASE}/api/doctor/appointments/${id}/complete`, {
+      method: 'PUT', credentials: 'include'
+    })
+    const data = await res.json()
+    if (data.success) loadAppointments()
+    else alert(data.message)
+  } catch (e) { alert('Error updating appointment') }
 }
 
-onMounted(() => {
-  loadAppointments()
-})
+const markCancel = async (id) => {
+  if (!confirm('Cancel this appointment?')) return
+  try {
+    const res = await fetch(`${API_BASE}/api/doctor/appointments/${id}/cancel`, {
+      method: 'PUT', credentials: 'include'
+    })
+    const data = await res.json()
+    if (data.success) loadAppointments()
+    else alert(data.message)
+  } catch (e) { alert('Error cancelling appointment') }
+}
+
+const saveDiagnosis = async () => {
+  if (!diagnoseForm.value.diagnosis) { alert('Diagnosis is required'); return }
+  saving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/api/doctor/appointments/${selectedAppointment.value.id}/diagnose`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        diagnosis: diagnoseForm.value.diagnosis,
+        prescription: diagnoseForm.value.prescription,
+        notes: diagnoseForm.value.notes,
+        treatment_plan: diagnoseForm.value.notes,
+        next_visit_date: diagnoseForm.value.next_visit_date || null
+      })
+    })
+    const data = await res.json()
+    if (data.success) {
+      closeModal()
+      loadAppointments()
+    } else {
+      alert(data.message)
+    }
+  } catch (e) {
+    alert('Error saving diagnosis')
+  } finally {
+    saving.value = false
+  }
+}
+
+onMounted(loadAppointments)
 </script>
 
 <style scoped>
-.card {
-  border: none;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-}
-
-.card-header {
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
-  padding: 1rem 1.25rem;
-}
-
-.table th {
-  font-weight: 600;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #6b7280;
-  border-bottom: 2px solid #e5e7eb;
-  padding: 1rem;
-}
-
-.table td {
-  padding: 0.875rem 1rem;
-  vertical-align: middle;
-}
-
-.badge {
-  font-weight: 500;
-  padding: 0.5em 0.75em;
-}
-
-.modal-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1050;
-  padding: 1rem;
-}
-
-.modal-dialog {
-  width: 100%;
-  max-width: 800px;
-  margin: 0;
-}
-
-.modal-content {
-  border: none;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-}
-
-.modal-header {
-  border-bottom: 1px solid #e5e7eb;
-  padding: 1.25rem 1.5rem;
-}
-
-.modal-body {
-  padding: 1.5rem;
-  max-height: 70vh;
-  overflow-y: auto;
-}
-
-.modal-footer {
-  border-top: 1px solid #e5e7eb;
-  padding: 1rem 1.5rem;
-}
+.detail-group { margin-bottom: 1rem; }
+.detail-group label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; display: block; margin-bottom: 0.25rem; }
+.detail-group p { margin: 0; color: #111827; font-weight: 500; }
 </style>

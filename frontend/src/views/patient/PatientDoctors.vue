@@ -183,7 +183,7 @@ const loadDoctors = async () => {
 
 const loadDepartments = async () => {
   try {
-    const res = await fetch(`${API_BASE}/api/admin/departments/list`, { credentials: 'include' })
+    const res = await fetch(`${API_BASE}/api/patient/doctors`, { credentials: 'include' })
     const data = await res.json()
     if (data.success) {
       departments.value = data.departments || []

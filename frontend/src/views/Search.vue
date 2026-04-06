@@ -194,11 +194,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const searchTerm = ref('')
 const loading = ref(false)
-const role = localStorage.getItem('role')
+const role = authStore.role || JSON.parse(localStorage.getItem('user') || '{}').role || 'admin'
 
 const searchType = ref('all')
 const statusFilter = ref('')
@@ -256,7 +258,6 @@ const performSearch = async () => {
   const basePath = role === 'admin'
     ? '/admin/search/results'
     : '/doctor/search/results'
-
   const query = {
     q: searchTerm.value,
     type: searchType.value,
@@ -299,3 +300,26 @@ const clearForm = () => {
   doctorFilter.value = ''
 }
 </script>
+
+<style scoped>
+.card {
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  margin-bottom: 1.5rem;
+  background: white;
+  transition: box-shadow 0.25s ease;
+}
+
+.card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.1); }
+
+.card-header {
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1.25rem 1.5rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.card-body { padding: 1.5rem; }
+</style>

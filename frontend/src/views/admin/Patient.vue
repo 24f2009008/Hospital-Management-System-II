@@ -117,23 +117,27 @@
             <div class="row">
               <div class="col-md-6">
                 <table class="table table-sm table-borderless">
-                  <tr><th width="40%">Patient ID:</th><td>PAT{{ String(selectedPatient?.id).padStart(6, '0') }}</td></tr>
-                  <tr><th>Full Name:</th><td>{{ selectedPatient?.name }}</td></tr>
-                  <tr><th>Username:</th><td>{{ selectedPatient?.username }}</td></tr>
-                  <tr><th>Gender:</th><td>{{ selectedPatient?.gender }}</td></tr>
-                  <tr><th>Date of Birth:</th><td>{{ selectedPatient?.dob || 'N/A' }}</td></tr>
+                  <tbody>
+                    <tr><th width="40%">Patient ID:</th><td>PAT{{ String(selectedPatient?.id).padStart(6, '0') }}</td></tr>
+                    <tr><th>Full Name:</th><td>{{ selectedPatient?.name }}</td></tr>
+                    <tr><th>Username:</th><td>{{ selectedPatient?.username }}</td></tr>
+                    <tr><th>Gender:</th><td>{{ selectedPatient?.gender }}</td></tr>
+                    <tr><th>Date of Birth:</th><td>{{ selectedPatient?.dob || 'N/A' }}</td></tr>
+                  </tbody>
                 </table>
               </div>
               <div class="col-md-6">
                 <table class="table table-sm table-borderless">
-                  <tr><th width="40%">Blood Group:</th><td><span class="badge bg-danger">{{ selectedPatient?.blood_group }}</span></td></tr>
-                  <tr><th>Address:</th><td>{{ selectedPatient?.address || 'N/A' }}</td></tr>
-                  <tr><th>Age:</th><td>{{ calculateAge(selectedPatient?.dob) }}</td></tr>
-                  <tr><th>Account Status:</th><td>
-                    <span class="badge" :class="selectedPatient?.is_active ? 'bg-success' : 'bg-secondary'">
-                      {{ selectedPatient?.is_active ? 'Active' : 'Inactive' }}
-                    </span>
-                  </td></tr>
+                  <tbody>
+                    <tr><th width="40%">Blood Group:</th><td><span class="badge bg-danger">{{ selectedPatient?.blood_group }}</span></td></tr>
+                    <tr><th>Address:</th><td>{{ selectedPatient?.address || 'N/A' }}</td></tr>
+                    <tr><th>Age:</th><td>{{ calculateAge(selectedPatient?.dob) }}</td></tr>
+                    <tr><th>Account Status:</th><td>
+                      <span class="badge" :class="selectedPatient?.is_active ? 'bg-success' : 'bg-secondary'">
+                        {{ selectedPatient?.is_active ? 'Active' : 'Inactive' }}
+                      </span>
+                    </td></tr>
+                  </tbody>
                 </table>
               </div>
             </div>

@@ -400,6 +400,34 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.card { border-radius: 1rem; }
-.list-group-item.active { background-color: var(--primary); border-color: var(--primary); }
+.card {
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  margin-bottom: 1.5rem;
+  background: white;
+}
+
+.card-header {
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1.25rem 1.5rem;
+}
+
+.card-body { padding: 1.5rem; }
+
+.list-group-item {
+  border-color: #f3f4f6;
+  padding: 0.875rem 1.25rem;
+  transition: background 0.15s ease;
+}
+
+.list-group-item:hover { background: #f9fafb; }
+
+.list-group-item.active {
+  background: linear-gradient(90deg, rgba(99,102,241,.15), rgba(139,92,246,.08));
+  border-color: #c7d2fe;
+  color: #111827;
+  border-left: 3px solid #6366f1;
+}
 </style>

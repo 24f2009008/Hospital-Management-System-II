@@ -9,7 +9,8 @@ const router = useRouter()
 onMounted(async () => {
   try {
     await fetch('http://127.0.0.1:5000/api/logout', {
-      method: 'POST'
+      method: 'POST',
+      credentials: 'include'
     })
   } catch (err) {
     console.error(err)

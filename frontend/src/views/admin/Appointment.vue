@@ -139,14 +139,16 @@
               <div class="col-md-6">
                 <h6 class="text-muted mb-3">Patient Information</h6>
                 <table class="table table-sm table-borderless">
-                  <tr>
-                    <th width="40%">Name:</th>
-                    <td>{{ selectedAppointment?.patient_name }}</td>
-                  </tr>
-                  <tr v-if="selectedAppointment?.patient_id">
-                    <th>Patient ID:</th>
-                    <td>PAT{{ String(selectedAppointment?.patient_id).padStart(6, '0') }}</td>
-                  </tr>
+                  <tbody>
+                    <tr>
+                      <th width="40%">Name:</th>
+                      <td>{{ selectedAppointment?.patient_name }}</td>
+                    </tr>
+                    <tr v-if="selectedAppointment?.patient_id">
+                      <th>Patient ID:</th>
+                      <td>PAT{{ String(selectedAppointment?.patient_id).padStart(6, '0') }}</td>
+                    </tr>
+                  </tbody>
                 </table>
               </div>
               
@@ -154,10 +156,12 @@
               <div class="col-md-6">
                 <h6 class="text-muted mb-3">Doctor Information</h6>
                 <table class="table table-sm table-borderless">
-                  <tr>
-                    <th width="40%">Name:</th>
-                    <td>{{ selectedAppointment?.doctor_name }}</td>
-                  </tr>
+                  <tbody>
+                    <tr>
+                      <th width="40%">Name:</th>
+                      <td>{{ selectedAppointment?.doctor_name }}</td>
+                    </tr>
+                  </tbody>
                 </table>
               </div>
             </div>
@@ -169,26 +173,28 @@
               <div class="col-12">
                 <h6 class="text-muted mb-3">Appointment Information</h6>
                 <table class="table table-sm table-borderless">
-                  <tr>
-                    <th width="20%">Appointment #:</th>
-                    <td>{{ selectedAppointment?.appointment_number || `APT${String(selectedAppointment?.id).padStart(8, '0')}` }}</td>
-                  </tr>
-                  <tr>
-                    <th>Date & Time:</th>
-                    <td>{{ selectedAppointment?.date }} at {{ selectedAppointment?.time }}</td>
-                  </tr>
-                  <tr>
-                    <th>Status:</th>
-                    <td>
-                      <span class="badge" :class="getStatusClass(selectedAppointment?.status)">
-                        {{ selectedAppointment?.status }}
-                      </span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>Reason for Visit:</th>
-                    <td>{{ selectedAppointment?.reason || 'N/A' }}</td>
-                  </tr>
+                  <tbody>
+                    <tr>
+                      <th width="20%">Appointment #:</th>
+                      <td>{{ selectedAppointment?.appointment_number || `APT${String(selectedAppointment?.id).padStart(8, '0')}` }}</td>
+                    </tr>
+                    <tr>
+                      <th>Date &amp; Time:</th>
+                      <td>{{ selectedAppointment?.date }} at {{ selectedAppointment?.time }}</td>
+                    </tr>
+                    <tr>
+                      <th>Status:</th>
+                      <td>
+                        <span class="badge" :class="getStatusClass(selectedAppointment?.status)">
+                          {{ selectedAppointment?.status }}
+                        </span>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th>Reason for Visit:</th>
+                      <td>{{ selectedAppointment?.reason || 'N/A' }}</td>
+                    </tr>
+                  </tbody>
                 </table>
               </div>
             </div>

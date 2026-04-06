@@ -1584,8 +1584,8 @@ def patient_medical_history():
             "medical_history": {
                 "allergies": medical_history.allergies if medical_history else "",
                 "chronic_conditions": medical_history.chronic_conditions if medical_history else "",
-                "medications": medical_history.medications if medical_history else "",
-                "notes": medical_history.notes if medical_history else ""
+                "medications": medical_history.current_medications if medical_history else "",
+                "notes": medical_history.previous_surgeries if medical_history else ""
             },
             "treatments": treatments_list,
             "appointments": appointments_list
@@ -2312,22 +2312,41 @@ def admin_search():
 @app.route("/api/admin/departments", methods=["GET"])
 @login_required
 def admin_departments():
-
     if current_user.role != "admin":
-        return jsonify({
-            "success": False,
-            "message": "Access denied"
-        }), 403
+        return jsonify({"success": False, "message": "Access denied"}), 403
 
     session = SessionLocal()
+    try:
+        departments = session.query(Department).order_by(Department.name).all()
+        dept_list = [
+            {
+                "id": d.id,
+                "name": d.name,
+                "description": d.description,
+                "doctor_count": session.query(Doctor).filter_by(depid=d.id).count()
+            }
+            for d in departments
+        ]
+        return jsonify({"success": True, "departments": dept_list}), 200
+    except Exception as e:
+        print("[ERROR] admin_departments:", e)
+        return jsonify({"success": False, "message": "Error loading departments"}), 500
+    finally:
+        session.close()
 
+
+@app.route("/api/admin/profile", methods=["GET"])
+@login_required
+def admin_profile():
+    if current_user.role != "admin":
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    session = SessionLocal()
     try:
         user = session.query(User).filter_by(id=current_user.id).first()
-
         total_doctors = session.query(Doctor).count()
         total_patients = session.query(Patient).count()
         total_appointments = session.query(Appointment).count()
-
         return jsonify({
             "success": True,
             "profile": {
@@ -2342,15 +2361,9 @@ def admin_departments():
                 "total_patients": total_patients
             }
         }), 200
-
     except Exception as e:
         print("[ERROR] admin_profile:", e)
-
-        return jsonify({
-            "success": False,
-            "message": "Error loading profile"
-        }), 500
-
+        return jsonify({"success": False, "message": "Error loading profile"}), 500
     finally:
         session.close()
 
@@ -2683,8 +2696,8 @@ def admin_patient_treatments(patient_id):
             "medical_history": {
                 "allergies": medical_history.allergies if medical_history else "",
                 "chronic_conditions": medical_history.chronic_conditions if medical_history else "",
-                "medications": medical_history.medications if medical_history else "",
-                "notes": medical_history.notes if medical_history else ""
+                "medications": medical_history.current_medications if medical_history else "",
+                "notes": medical_history.previous_surgeries if medical_history else ""
             },
             "treatments": treatments_list,
             "appointments": appointments_list
@@ -2701,10 +2714,37 @@ def admin_patient_treatments(patient_id):
     finally:
         session.close()
 
+
+@app.route("/api/admin/patients/<int:patient_id>/history", methods=["GET"])
+@login_required
+def admin_patient_history(patient_id):
+    if current_user.role not in ["admin", "doctor"]:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    session = SessionLocal()
+    try:
+        patient = session.query(Patient).filter_by(id=patient_id).first()
+        if not patient:
+            return jsonify({"success": False, "message": "Patient not found"}), 404
+        medical_history = session.query(MedicalHistory).filter_by(patid=patient_id).first()
+        return jsonify({
+            "success": True,
+            "medical_history": {
+                "allergies": medical_history.allergies if medical_history else "",
+                "chronic_conditions": medical_history.chronic_conditions if medical_history else "",
+                "medications": medical_history.current_medications if medical_history else "",
+                "notes": medical_history.previous_surgeries if medical_history else ""
+            }
+        }), 200
+    except Exception as e:
+        print("[ERROR] admin_patient_history:", e)
+        return jsonify({"success": False, "message": "Error loading history"}), 500
+    finally:
+        session.close()
+
+
 @app.route("/api/admin/treatments", methods=["GET"])
 @login_required
 def admin_treatments():
-
     if current_user.role != "admin":
         return jsonify({
             "success": False,
@@ -4149,40 +4189,62 @@ def update_patient_medical_history():
 @app.route("/api/patient/treatments/export", methods=["GET"])
 @login_required
 def export_patient_treatments():
-    """Trigger async export of patient treatment history as CSV"""
-    
+    """Export patient treatment history as CSV — sync direct download, async via Celery if available."""
+
     if current_user.role != "patient":
-        return jsonify({
-            "success": False,
-            "message": "Access denied"
-        }), 403
-    
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
     session = SessionLocal()
-    
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
-        
         if not patient:
-            return jsonify({
-                "success": False,
-                "message": "Patient not found"
-            }), 404
-        
-        try:
-            from background_jobs import export_treatment_csv
-            task = export_treatment_csv.delay(patient.id)
-            return jsonify({
-                "success": True,
-                "message": "Export started. You will receive an email when ready.",
-                "task_id": task.id
-            }), 202
-        except Exception as e:
-            print(f"[ERROR] Celery task failed: {e}")
-            return jsonify({
-                "success": False,
-                "message": "Could not start export job"
-            }), 500
-        
+            return jsonify({"success": False, "message": "Patient not found"}), 404
+
+        patient_user = session.query(User).filter_by(id=current_user.id).first()
+
+        # Build CSV directly
+        treatments = (
+            session.query(Treatment, Appointment, Doctor, User)
+            .join(Appointment, Treatment.appointid == Appointment.id)
+            .join(Doctor, Treatment.docid == Doctor.id)
+            .join(User, Doctor.uid == User.id)
+            .filter(Appointment.patid == patient.id)
+            .order_by(Appointment.appoint_date.desc())
+            .all()
+        )
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            'User ID', 'Username', 'Consulting Doctor', 'Appointment Date',
+            'Diagnosis', 'Treatment Plan', 'Prescription', 'Notes', 'Next Visit'
+        ])
+
+        for treatment, appointment, doctor, doc_user in treatments:
+            writer.writerow([
+                patient.id,
+                patient_user.username if patient_user else 'N/A',
+                doc_user.name if doc_user else 'N/A',
+                appointment.appoint_date.strftime('%Y-%m-%d') if appointment.appoint_date else 'N/A',
+                treatment.diagnosis or 'N/A',
+                treatment.treatment_plan or 'N/A',
+                treatment.prescription or 'N/A',
+                treatment.notes or 'N/A',
+                treatment.next_visit_date.strftime('%Y-%m-%d') if treatment.next_visit_date else 'N/A'
+            ])
+
+        csv_content = output.getvalue()
+        output.close()
+
+        filename = f"treatment_history_{datetime.now().strftime('%Y%m%d')}.csv"
+        response = make_response(csv_content)
+        response.headers['Content-Type'] = 'text/csv'
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+        return response
+
+    except Exception as e:
+        print(f"[ERROR] export_patient_treatments: {e}")
+        return jsonify({"success": False, "message": "Error generating export"}), 500
     finally:
         session.close()
 

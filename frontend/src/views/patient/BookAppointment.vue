@@ -230,8 +230,11 @@ const loadMyAppointments = async () => {
 
 const bookAppointment = async () => {
   if (!selectedDoctor.value || !appointment.value.date || !appointment.value.time) {
-    alert('Please fill in all required fields')
+    alert('Please select a doctor, date, and time slot')
     return
+  }
+  if (!appointment.value.reason) {
+    appointment.value.reason = 'General consultation'
   }
   
   booking.value = true
@@ -269,6 +272,35 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.card { border-radius: 1rem; }
-.table th { font-weight: 600; }
+.card {
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  margin-bottom: 1.5rem;
+  background: white;
+  transition: box-shadow 0.25s ease;
+}
+
+.card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.1); }
+
+.card-header {
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1.25rem 1.5rem;
+}
+
+.card-body { padding: 1.5rem; }
+
+.table thead th {
+  background: #f9fafb;
+  border-bottom: 2px solid #e5e7eb;
+  color: #6b7280;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  padding: 0.875rem 1.25rem;
+}
+
+.table tbody td { padding: 0.875rem 1.25rem; vertical-align: middle; }
 </style>

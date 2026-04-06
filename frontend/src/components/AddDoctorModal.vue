@@ -174,7 +174,7 @@ const form = reactive({
 
 const loadDepartments = async () => {
   try {
-    const res = await fetch('1http://127.0.0.1:5000/api/admin/departments', {
+    const res = await fetch('http://127.0.0.1:5000/api/admin/departments', {
       method: 'GET',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' }

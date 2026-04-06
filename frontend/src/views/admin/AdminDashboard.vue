@@ -95,7 +95,7 @@
             <div class="card-body p-4">
               <div class="row g-3">
                 <div class="col-md-3 col-sm-6">
-                  <router-link to="/admin/addDoctor" class="btn btn-outline-primary w-100 py-3 quick-action-btn">
+                  <router-link to="/admin/doctors" class="btn btn-outline-primary w-100 py-3 quick-action-btn">
                     <i class="fas fa-user-plus fa-lg mb-2 d-block"></i>
                     <span class="fw-semibold">Add Doctor</span>
                   </router-link>
@@ -432,7 +432,6 @@ onMounted(() => {
   font-weight: 600;
   font-size: 0.875rem;
   transition: all 0.2s ease;
-  border: none;
 }
 
 .btn-outline-primary {

@@ -27,81 +27,56 @@ const routes = [
   { path: '/login', component: Login },
   { path: '/register', component: Register },
   { path: '/logout', component: Logout },
-  { path: '/admin', component: BaseLayout, 
+
+  {
+    path: '/admin',
+    component: BaseLayout,
     props: { role: 'admin' },
     children: [
-      {
-        path: 'dashboard', component: AdminDashboard
-      },
-      {
-        path: 'doctors', component: Doctor
-      },
-      {
-        path: 'patients', component: AdminPatient
-      },
-      {
-        path: 'appointments', component: AdminAppointment
-      },
-      {
-        path: 'search', component: Search
-      },
-      {
-        path: 'search/results', component: SearchResult
-      }
+      { path: '', redirect: 'dashboard' },
+      { path: 'dashboard', component: AdminDashboard },
+      { path: 'doctors', component: Doctor },
+      { path: 'patients', component: AdminPatient },
+      { path: 'appointments', component: AdminAppointment },
+      { path: 'search', component: Search },
+      { path: 'search/results', component: SearchResult },
+      { path: 'profile', component: Profile }
     ]
   },
-  { path: '/doctor', component: BaseLayout,
+
+  {
+    path: '/doctor',
+    component: BaseLayout,
     props: { role: 'doctor' },
     children: [
-      {
-        path: 'dashboard',component: DoctorDashboard
-      },
-      {
-        path: 'patients', component: DoctorPatient
-      },
-      {
-        path: 'appointments', component: DoctorAppointment
-      },
-      {
-        path: 'search', component: Search
-      },
-      {
-        path: 'search/results', component: SearchResult
-      },
-      {
-        path: 'treatments', component: Treatment
-      },
-      {
-        path: 'profile', component: Profile
-      },
-      {
-        path: 'availability', component: Availability
-      }
+      { path: '', redirect: 'dashboard' },
+      { path: 'dashboard', component: DoctorDashboard },
+      { path: 'patients', component: DoctorPatient },
+      { path: 'appointments', component: DoctorAppointment },
+      { path: 'search', component: Search },
+      { path: 'search/results', component: SearchResult },
+      { path: 'treatments', component: Treatment },
+      { path: 'profile', component: Profile },
+      { path: 'availability', component: Availability }
     ]
   },
-  {path: '/patient', component: BaseLayout,
+
+  {
+    path: '/patient',
+    component: BaseLayout,
     props: { role: 'patient' },
     children: [
-      {
-        path: 'dashboard', component: PatientDashboard
-      },
-      {
-        path: 'doctors', component: PatientDoctors
-      },
-      {
-        path: 'appointments', component: PatientAppointments
-      },
-      {
-        path: 'appointments/book', component: BookAppointment
-      },
-      {
-        path: 'history', component: Search
-      },
-      {
-        path: 'profile', component: Profile
-      }
+      { path: '', redirect: 'dashboard' },
+      { path: 'dashboard', component: PatientDashboard },
+      { path: 'doctors', component: PatientDoctors },
+      { path: 'appointments', component: PatientAppointments },
+      { path: 'appointments/book', component: BookAppointment },
+      { path: 'profile', component: Profile }
     ]
-  }
+  },
+
+  // Catch-all redirect
+  { path: '/:pathMatch(.*)*', redirect: '/login' }
 ]
 
 const router = createRouter({
@@ -114,45 +89,29 @@ import { useAuthStore } from '@/stores/auth'
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
 
-  // Load from localStorage if needed
   if (!authStore.isLoggedIn) {
     authStore.loadFromStorage()
   }
 
-  // Protect admin routes
-  if (to.path.startsWith('/admin')) {
-    if (!authStore.isLoggedIn) {
-      alert("Unauthorized")
-      return next('/login')
-    }
+  const publicPaths = ['/', '/login', '/register']
+  if (publicPaths.includes(to.path)) return next()
 
-    if (authStore.role !== 'admin') {
-      return next(`/${authStore.role}/dashboard`)
-    }
+  if (to.path.startsWith('/admin')) {
+    if (!authStore.isLoggedIn) return next('/login')
+    if (authStore.role !== 'admin') return next(`/${authStore.role}/dashboard`)
   }
 
   if (to.path.startsWith('/doctor')) {
-    if (!authStore.isLoggedIn) {
-      return next('/login')
-    }
-
-    if (authStore.role !== 'doctor') {
-      alert("Unauthorized")
-      return next(`/${authStore.role}/dashboard`)
-    }
-}
+    if (!authStore.isLoggedIn) return next('/login')
+    if (authStore.role !== 'doctor') return next(`/${authStore.role}/dashboard`)
+  }
 
   if (to.path.startsWith('/patient')) {
-    if (!authStore.isLoggedIn) {
-      return next('/login')
-    }
-
-    if (authStore.role !== 'patient') {
-      alert("Unauthorized")
-      return next(`/${authStore.role}/dashboard`)
-    }
+    if (!authStore.isLoggedIn) return next('/login')
+    if (authStore.role !== 'patient') return next(`/${authStore.role}/dashboard`)
   }
 
   next()
 })
+
 export default router
