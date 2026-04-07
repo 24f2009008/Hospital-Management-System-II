@@ -104,6 +104,12 @@ __marimo__/
 # Database
 *.db
 hms.db
+dump.rdb
+
+# Celery
+celerybeat-schedule*
+celery_worker.log
+celery_beat.log
 
 
 # =========================
