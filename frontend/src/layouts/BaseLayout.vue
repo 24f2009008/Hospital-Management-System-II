@@ -31,8 +31,11 @@
           <span>{{ link.label }}</span>
         </router-link>
 
-        <div class="nav-section-title">Settings</div>
+        <div 
+          v-if="role !== 'admin'"
+          class="nav-section-title">Settings</div>
         <router-link
+          v-if="role !== 'admin'"
           :to="profileRoute"
           class="nav-link"
           :class="{ active: isActive(profileRoute) }"
@@ -133,20 +136,21 @@ const navLinks = computed(() => {
       { to: '/doctor/appointments', label: 'Appointments',  icon: 'fas fa-calendar-check' },
       { to: '/doctor/patients',     label: 'My Patients',   icon: 'fas fa-users' },
       { to: '/doctor/treatments',   label: 'Treatments',    icon: 'fas fa-file-medical' },
-      { to: '/doctor/search',       label: 'Search',        icon: 'fas fa-search' }
     ]
   } else {
     return [
       { to: '/patient/dashboard',           label: 'Dashboard',        icon: 'fas fa-tachometer-alt' },
       { to: '/patient/appointments',        label: 'My Appointments',  icon: 'fas fa-calendar-check' },
       { to: '/patient/appointments/book',   label: 'Book Appointment', icon: 'fas fa-calendar-plus' },
-      { to: '/patient/doctors',             label: 'Find Doctors',     icon: 'fas fa-user-md' }
+      { to: '/patient/history',             label: 'Medical History',  icon: 'fas fa-file-medical-alt' },
+      { to: '/patient/departments',          label: 'Departments',     icon: 'fas fa-hospital' },
+      { to: '/patient/doctors',              label: 'Find Doctors',    icon: 'fas fa-user-md' }
     ]
   }
 })
 
 const profileRoute = computed(() => `/${props.role}/profile`)
-const isActive = (path) => route.path === path || route.path.startsWith(path + '/')
+const isActive = (path) => route.path === path
 </script>
 
 <style scoped>

@@ -98,10 +98,20 @@
               </router-link>
             </div>
             <div class="col-md-3 col-sm-6">
-              <button @click="exportTreatments" class="quick-action-btn btn-qa-info">
-                <i class="fas fa-file-export fa-lg mb-2"></i>
-                <span>Export History</span>
-              </button>
+              <div class="dropdown">
+                <button class="quick-action-btn btn-qa-info dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="fas fa-file-export fa-lg mb-2"></i>
+                  <span>Export History</span>
+                </button>
+                <ul class="dropdown-menu">
+                  <li><a class="dropdown-item" href="#" @click.prevent="exportTreatments(false)">
+                    <i class="fas fa-download me-2"></i>Download Now
+                  </a></li>
+                  <li><a class="dropdown-item" href="#" @click.prevent="exportTreatments(true)">
+                    <i class="fas fa-envelope me-2"></i>Send to Email
+                  </a></li>
+                </ul>
+              </div>
             </div>
             <div class="col-md-3 col-sm-6">
               <router-link to="/patient/profile" class="quick-action-btn btn-qa-warning">
@@ -218,29 +228,40 @@ const cancelAppointment = async (id) => {
   await loadDashboard()
 }
 
-const exportTreatments = async () => {
+const exportTreatments = async (asyncExport = false) => {
   try {
-    const res = await fetch('http://127.0.0.1:5000/api/patient/treatments/export', { credentials: 'include' })
-    if (res.ok) {
-      const contentType = res.headers.get('content-type') || ''
-      if (contentType.includes('text/csv') || contentType.includes('application/octet-stream')) {
-        const blob = await res.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `treatment_history_${new Date().toISOString().split('T')[0]}.csv`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        a.remove()
+    if (asyncExport) {
+      const res = await fetch(`${API_BASE}/api/patient/treatments/export?async=true`, { 
+        credentials: 'include' 
+      })
+      const data = await res.json()
+      if (data.success) {
+        alert('Your treatment history will be exported and sent to your email shortly.')
       } else {
-        // JSON response (e.g. no treatments)
-        const data = await res.json()
-        alert(data.message || 'Export failed')
+        alert(data.message || 'Failed to start export')
       }
     } else {
-      const data = await res.json().catch(() => ({}))
-      alert(data.message || 'Failed to export treatment history')
+      const res = await fetch(`${API_BASE}/api/patient/treatments/export`, { credentials: 'include' })
+      if (res.ok) {
+        const contentType = res.headers.get('content-type') || ''
+        if (contentType.includes('text/csv') || contentType.includes('application/octet-stream')) {
+          const blob = await res.blob()
+          const url = window.URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `treatment_history_${new Date().toISOString().split('T')[0]}.csv`
+          document.body.appendChild(a)
+          a.click()
+          window.URL.revokeObjectURL(url)
+          a.remove()
+        } else {
+          const data = await res.json()
+          alert(data.message || 'Export failed')
+        }
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.message || 'Failed to export treatment history')
+      }
     }
   } catch (e) {
     console.error('Export error:', e)

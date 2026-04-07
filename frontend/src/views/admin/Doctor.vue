@@ -72,16 +72,17 @@
                   </span>
                 </td>
                 <td>
-                  <div class="btn-group btn-group-sm" role="group">
+                  <div class="d-flex gap-1">
                     <button @click="editDoctor(doctor)" class="btn btn-sm btn-outline-primary" title="Edit">
                       <i class="fas fa-edit"></i>
                     </button>
                     <button 
                       @click="toggleStatus(doctor)"
                       class="btn btn-sm"
-                      :class="doctor.status === 'active' ? 'btn-outline-danger' : 'btn-outline-success'"
-                      :title="doctor.status === 'active' ? 'Deactivate' : 'Activate'">
-                      <i :class="doctor.status === 'active' ? 'fas fa-ban' : 'fas fa-check'"></i>
+                      :class="(doctor.status || 'active') === 'active' ? 'btn-danger' : 'btn-success'"
+                      title="Click to toggle status">
+                      <i class="fas fa-power-off me-1"></i>
+                      {{ (doctor.status || 'active') === 'active' ? 'Deactivate' : 'Activate' }}
                     </button>
                   </div>
                 </td>
@@ -150,6 +151,7 @@ const loadDoctors = async () => {
       throw new Error(data.message || 'Failed to load doctors')
     }
 
+    console.log('Doctors data from API:', data.doctors)
     doctors.value = data.doctors || []
   } catch (err) {
     error.value = err.message
@@ -160,31 +162,43 @@ const loadDoctors = async () => {
 }
 
 const toggleStatus = async (doctor) => {
+  console.log('toggleStatus called for doctor:', doctor.id, doctor.status)
   const newStatus = doctor.status === 'active' ? 'inactive' : 'active'
   const action = newStatus === 'active' ? 'activate' : 'deactivate'
   
   if (!confirm(`Are you sure you want to ${action} this doctor?`)) {
+    console.log('User cancelled')
     return
   }
 
+  console.log('Calling API for new status:', newStatus)
+  loading.value = true
   try {
-    const res = await fetch(`${API_BASE}/api/admin/doctors/${doctor.id}/status`, {
+    const url = `${API_BASE}/api/admin/doctors/${doctor.id}/status`
+    console.log('URL:', url)
+    
+    const res = await fetch(url, {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
     })
 
+    console.log('Response status:', res.status)
     const data = await res.json()
+    console.log('Response data:', data)
 
     if (data.success) {
+      alert(`Doctor ${action}d successfully!`)
       await loadDoctors()
     } else {
       alert(data.message || 'Failed to update status')
     }
   } catch (err) {
     console.error('Error toggling status:', err)
-    alert('Failed to update status')
+    alert('Failed to update status: ' + err.message)
+  } finally {
+    loading.value = false
   }
 }
 

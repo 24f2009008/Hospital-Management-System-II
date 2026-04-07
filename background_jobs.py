@@ -8,10 +8,14 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from celery import Celery
 
 from app import SessionLocal, User, Patient, Doctor, Appointment, Treatment
+from sqlalchemy.orm import aliased
 
 
 GCHAT_WEBHOOK_URL = os.environ.get('GCHAT_WEBHOOK_URL', '')
@@ -39,6 +43,7 @@ celery_app.conf.update(
         },
     },
     timezone='UTC',
+    beat_schedule_filename='/tmp/celerybeat-schedule',
 )
 
 
@@ -102,14 +107,17 @@ def send_daily_reminders():
     try:
         today = date.today()
         
-        appointments = session.query(Appointment, User, Doctor, User).join(
+        PatientUser = aliased(User)
+        DoctorUser = aliased(User)
+        
+        appointments = session.query(Appointment, PatientUser, DoctorUser).join(
             Patient, Appointment.patid == Patient.id
         ).join(
-            User, Patient.uid == User.id
+            PatientUser, Patient.uid == PatientUser.id
         ).join(
             Doctor, Appointment.docid == Doctor.id
         ).join(
-            User, Doctor.uid == User.id
+            DoctorUser, Doctor.uid == DoctorUser.id
         ).filter(
             Appointment.appoint_date == today,
             Appointment.status == 'Booked'
@@ -119,7 +127,7 @@ def send_daily_reminders():
             print("[JOB] No appointments today")
             return "No appointments"
         
-        for apt, patient_user, doctor, doctor_user in appointments:
+        for apt, patient_user, doctor_user in appointments:
             patient_name = patient_user.name
             doctor_name = doctor_user.name
             appointment_time = apt.appoint_time.strftime("%H:%M") if apt.appoint_time else "N/A"

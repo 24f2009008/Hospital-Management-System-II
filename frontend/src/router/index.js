@@ -21,6 +21,7 @@ import Availability from '@/views/doctor/Availability.vue'
 import BookAppointment from '@/views/patient/BookAppointment.vue'
 import PatientAppointments from '@/views/patient/PatientAppointments.vue'
 import PatientDoctors from '@/views/patient/PatientDoctors.vue'
+import MedicalHistory from '@/views/patient/MedicalHistory.vue'
 
 const routes = [
   { path: '/', component: Home },
@@ -68,9 +69,11 @@ const routes = [
     children: [
       { path: '', redirect: 'dashboard' },
       { path: 'dashboard', component: PatientDashboard },
+      { path: 'departments', component: PatientDoctors },
       { path: 'doctors', component: PatientDoctors },
       { path: 'appointments', component: PatientAppointments },
       { path: 'appointments/book', component: BookAppointment },
+      { path: 'history', component: MedicalHistory },
       { path: 'profile', component: Profile }
     ]
   },

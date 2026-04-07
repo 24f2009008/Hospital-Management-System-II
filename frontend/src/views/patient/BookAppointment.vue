@@ -14,7 +14,8 @@
 
     <div class="row g-4">
       <div class="col-lg-8">
-        <div class="card shadow-sm border-0">
+        <!-- Doctor Selection (hidden when pre-selected) -->
+        <div class="card shadow-sm border-0" v-if="!doctorPreSelected">
           <div class="card-header bg-white border-bottom">
             <h5 class="card-title mb-0" style="color: var(--primary);">
               <i class="fas fa-user-md me-2"></i>Select Doctor
@@ -50,6 +51,19 @@
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pre-selected doctor info -->
+        <div class="card shadow-sm border-0 mb-4" v-if="doctorPreSelected">
+          <div class="card-body bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="mb-1"><i class="fas fa-user-md me-2 text-primary"></i>{{ selectedDoctorData?.name }}</h5>
+                <p class="mb-0 text-muted">{{ selectedDoctorData?.specialization }} - {{ selectedDoctorData?.department }}</p>
+              </div>
+              <button class="btn btn-sm btn-outline-secondary" @click="changeDoctor">Change</button>
             </div>
           </div>
         </div>
@@ -148,10 +162,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 
 const router = useRouter()
+const route = useRoute()
 const API_BASE = 'http://127.0.0.1:5000'
 
 const doctors = ref([])
@@ -162,6 +177,9 @@ const selectedDoctorData = ref(null)
 const availableSlots = ref([])
 const myAppointments = ref([])
 const booking = ref(false)
+const doctorPreSelected = computed(() => {
+  return selectedDoctor.value && selectedDoctorData.value
+})
 
 const appointment = ref({
   date: '',
@@ -172,6 +190,15 @@ const appointment = ref({
 const minDate = computed(() => {
   const today = new Date()
   return today.toISOString().split('T')[0]
+})
+
+watch(() => doctors.value, () => {
+  if (selectedDoctor.value && !selectedDoctorData.value) {
+    const doc = doctors.value.find(d => d.id === selectedDoctor.value)
+    if (doc) {
+      selectedDoctorData.value = doc
+    }
+  }
 })
 
 const filterDoctors = () => {
@@ -197,6 +224,14 @@ const loadDoctors = async () => {
 
 const selectDoctor = (doctor) => {
   selectedDoctorData.value = doctor
+  appointment.value.date = ''
+  appointment.value.time = ''
+  availableSlots.value = []
+}
+
+const changeDoctor = () => {
+  selectedDoctor.value = null
+  selectedDoctorData.value = null
   appointment.value.date = ''
   appointment.value.time = ''
   availableSlots.value = []
@@ -268,6 +303,11 @@ const bookAppointment = async () => {
 onMounted(() => {
   loadDoctors()
   loadMyAppointments()
+  
+  const doctorId = route.query.doctor_id
+  if (doctorId) {
+    selectedDoctor.value = parseInt(doctorId)
+  }
 })
 </script>
 

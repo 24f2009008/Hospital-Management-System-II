@@ -5,17 +5,42 @@
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div class="mb-2 mb-md-0">
           <h2 class="mb-1">
-            <i class="fas fa-user-md me-2"></i>
-            Find Doctors
+            <i :class="isDepartmentsPage ? 'fas fa-hospital' : 'fas fa-user-md'"></i>
+            {{ isDepartmentsPage ? 'Departments' : 'Find Doctors' }}
           </h2>
-          <p class="text-muted mb-0">Browse doctors and their availability</p>
+          <p class="text-muted mb-0">{{ isDepartmentsPage ? 'Browse departments and find the right specialist' : 'Browse doctors and their availability' }}</p>
         </div>
       </div>
     </div>
 
     <div class="row g-4">
-      <!-- Filters Sidebar -->
-      <div class="col-lg-3">
+      <!-- Departments Sidebar (shown on departments page) -->
+      <div class="col-lg-3" v-if="isDepartmentsPage">
+        <div class="card">
+          <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-building me-2"></i>All Departments</h5>
+          </div>
+          <div class="card-body p-0">
+            <div class="list-group list-group-flush">
+              <button 
+                v-for="dept in departments" 
+                :key="dept.id"
+                class="list-group-item list-group-item-action"
+                :class="{ 'active': selectedDepartment === dept.name }"
+                @click="selectDepartment(dept.name)"
+              >
+                <div class="d-flex justify-content-between align-items-center">
+                  <span>{{ dept.name }}</span>
+                  <span class="badge bg-primary rounded-pill">{{ getDoctorCount(dept.name) }}</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters Sidebar (shown on doctors page) -->
+      <div class="col-lg-3" v-else>
         <div class="card">
           <div class="card-header">
             <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filters</h5>
@@ -128,12 +153,17 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 
+const route = useRoute()
 const API_BASE = 'http://127.0.0.1:5000'
+
+const isDepartmentsPage = computed(() => route.path === '/patient/departments')
 
 const doctors = ref([])
 const departments = ref([])
 const specializations = ref([])
+const selectedDepartment = ref('')
 const filters = ref({
   search: '',
   department: '',
@@ -142,6 +172,9 @@ const filters = ref({
 
 const filteredDoctors = computed(() => {
   let result = doctors.value
+  if (isDepartmentsPage.value && selectedDepartment.value) {
+    result = result.filter(d => d.department === selectedDepartment.value)
+  }
   if (filters.value.search) {
     const query = filters.value.search.toLowerCase()
     result = result.filter(d => d.name.toLowerCase().includes(query))
@@ -195,6 +228,14 @@ const loadDepartments = async () => {
 
 const applyFilters = () => {
   // Filters applied via computed property
+}
+
+const selectDepartment = (deptName) => {
+  selectedDepartment.value = selectedDepartment.value === deptName ? '' : deptName
+}
+
+const getDoctorCount = (deptName) => {
+  return doctors.value.filter(d => d.department === deptName).length
 }
 
 onMounted(() => {

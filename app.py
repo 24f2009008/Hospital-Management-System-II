@@ -34,7 +34,9 @@ from flask_cors import CORS
 import threading
 
 
-# --- SQLAlchemy setup ---
+# --- Load environment variables ---
+from dotenv import load_dotenv
+load_dotenv()
 engine = create_engine("sqlite:///hms.db", echo=True, future=True)
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine, future=True)
@@ -124,6 +126,7 @@ class User(Base, UserMixin):
     username = Column(String(30), unique=True, nullable=False, index=True)
     password = Column(String(255), nullable=False)
     name = Column(String(100), nullable=False)
+    email = Column(String(100), unique=True, nullable=True, index=True)
     role = Column(String(20), nullable=False, index=True)  # admin | doctor | patient
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -1128,17 +1131,30 @@ def patient_book_appointment():
                 "message": "Cannot book appointments in the past"
             }), 400
 
-        existing = session.query(Appointment).filter_by(
+        existing_doctor = session.query(Appointment).filter_by(
             docid=doctor_id,
             appoint_date=appoint_date,
             appoint_time=appoint_time,
             status="Booked"
         ).first()
 
-        if existing:
+        if existing_doctor:
             return jsonify({
                 "success": False,
-                "message": "Time slot already booked"
+                "message": "Time slot already booked with this doctor"
+            }), 409
+
+        existing_patient = session.query(Appointment).filter_by(
+            patid=patient.id,
+            appoint_date=appoint_date,
+            appoint_time=appoint_time,
+            status="Booked"
+        ).first()
+
+        if existing_patient:
+            return jsonify({
+                "success": False,
+                "message": "You already have an appointment at this date and time"
             }), 409
 
         appointment_number = generate_appointment_number(session)
@@ -1553,7 +1569,7 @@ def patient_medical_history():
         treatments_list = [
             {
                 "id": t.id,
-                "appointment_id": t.appointment_id,
+                "appointment_id": t.appointid,
                 "doctor_name": t.appointment.doctor.user.name if t.appointment and t.appointment.doctor and t.appointment.doctor.user else "N/A",
                 "date": t.treatment_date.strftime("%Y-%m-%d") if t.treatment_date else None,
                 "diagnosis": t.diagnosis or "",
@@ -1742,7 +1758,8 @@ def admin_doctors():
                 "qualification": doctor.qualification,
                 "experience": doctor.experience,
                 "license_number": doctor.license_number,
-                "gender": doctor.gender
+                "gender": doctor.gender,
+                "status": doctor.status
             }
             for doctor, user, department in doctors
         ]
@@ -2012,6 +2029,86 @@ def toggle_patient_status(patient_id):
         return jsonify({
             "success": False,
             "message": "Error updating patient status"
+        }), 500
+
+    finally:
+        session.close()
+
+
+@app.route("/api/admin/patients/<int:patient_id>", methods=["PUT"])
+@login_required
+def admin_update_patient(patient_id):
+
+    if current_user.role != "admin":
+        return jsonify({
+            "success": False,
+            "message": "Access denied"
+        }), 403
+
+    session = SessionLocal()
+
+    try:
+        patient = session.query(Patient).filter_by(id=patient_id).first()
+
+        if not patient:
+            return jsonify({
+                "success": False,
+                "message": "Patient not found"
+            }), 404
+
+        data = request.get_json()
+
+        name = data.get("name")
+        gender = data.get("gender")
+        dob_str = data.get("dob")
+        blood_group = data.get("blood_group")
+        address = data.get("address")
+        phone = data.get("phone")
+
+        dob = None
+        if dob_str:
+            try:
+                dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
+            except:
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid date format"
+                }), 400
+
+        user = session.query(User).filter_by(id=patient.uid).first()
+
+        if name and user:
+            user.name = name
+
+        if gender:
+            patient.gender = gender
+
+        if dob is not None:
+            patient.dob = dob
+
+        if blood_group:
+            patient.blood_group = blood_group
+
+        if address:
+            patient.address = address
+
+        if phone:
+            patient.phone = phone
+
+        session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Patient updated successfully"
+        }), 200
+
+    except Exception as e:
+        session.rollback()
+        print(f"[ERROR] Admin update patient: {e}")
+
+        return jsonify({
+            "success": False,
+            "message": "Error updating patient"
         }), 500
 
     finally:
@@ -4194,11 +4291,28 @@ def export_patient_treatments():
     if current_user.role != "patient":
         return jsonify({"success": False, "message": "Access denied"}), 403
 
+    async_export = request.args.get("async", "false").lower() == "true"
+
     session = SessionLocal()
     try:
         patient = session.query(Patient).filter_by(uid=current_user.id).first()
         if not patient:
             return jsonify({"success": False, "message": "Patient not found"}), 404
+
+        if async_export:
+            try:
+                from background_jobs import export_treatment_csv
+                export_treatment_csv.delay(patient.id)
+                return jsonify({
+                    "success": True,
+                    "message": "Export job started. You will receive an email when ready."
+                }), 200
+            except Exception as e:
+                print(f"[ERROR] Async export: {e}")
+                return jsonify({
+                    "success": False,
+                    "message": "Failed to start async export. Try downloading directly."
+                }), 500
 
         patient_user = session.query(User).filter_by(id=current_user.id).first()
 
@@ -4273,7 +4387,6 @@ def initialize_app():
     Base.metadata.create_all(engine)
     create_super_admin()
     create_standard_departments()
-    start_background_jobs()
 
 
 if __name__ == "__main__":

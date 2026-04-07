@@ -76,7 +76,10 @@
                       <button @click="viewPatient(patient)" class="btn btn-sm btn-outline-info" title="View Details">
                         <i class="fas fa-eye"></i>
                       </button>
-                      <button @click="viewTreatments(patient)" class="btn btn-sm btn-outline-primary" title="View Treatments">
+                      <button @click="editPatient(patient)" class="btn btn-sm btn-outline-primary" title="Edit">
+                        <i class="fas fa-edit"></i>
+                      </button>
+                      <button @click="viewTreatments(patient)" class="btn btn-sm btn-outline-success" title="View Treatments">
                         <i class="fas fa-file-medical"></i>
                       </button>
                       <button 
@@ -144,6 +147,73 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" @click="closeDetailsModal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit Patient Modal -->
+    <div v-if="showEditModal" class="modal-backdrop" @click.self="closeEditModal">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="fas fa-user-edit me-2"></i>Edit Patient: {{ editForm.name }}
+            </h5>
+            <button type="button" class="btn-close" @click="closeEditModal"></button>
+          </div>
+          <div class="modal-body">
+            <form @submit.prevent="savePatient">
+              <div class="mb-3">
+                <label class="form-label">Full Name</label>
+                <input type="text" class="form-control" v-model="editForm.name" required>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">Gender</label>
+                  <select class="form-select" v-model="editForm.gender" required>
+                    <option value="">Select</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">Date of Birth</label>
+                  <input type="date" class="form-control" v-model="editForm.dob">
+                </div>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">Blood Group</label>
+                  <select class="form-select" v-model="editForm.blood_group">
+                    <option value="">Select</option>
+                    <option value="A+">A+</option>
+                    <option value="A-">A-</option>
+                    <option value="B+">B+</option>
+                    <option value="B-">B-</option>
+                    <option value="O+">O+</option>
+                    <option value="O-">O-</option>
+                    <option value="AB+">AB+</option>
+                    <option value="AB-">AB-</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">Phone</label>
+                  <input type="text" class="form-control" v-model="editForm.phone">
+                </div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Address</label>
+                <textarea class="form-control" v-model="editForm.address" rows="2"></textarea>
+              </div>
+              <div class="text-end">
+                <button type="button" class="btn btn-secondary me-2" @click="closeEditModal">Cancel</button>
+                <button type="submit" class="btn btn-primary" :disabled="saving">
+                  {{ saving ? 'Saving...' : 'Save Changes' }}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>
@@ -238,6 +308,18 @@ const error = ref(null)
 const showDetailsModal = ref(false)
 const selectedPatient = ref(null)
 
+const showEditModal = ref(false)
+const editForm = ref({
+  id: null,
+  name: '',
+  gender: '',
+  dob: '',
+  blood_group: '',
+  address: '',
+  phone: ''
+})
+const saving = ref(false)
+
 const showTreatmentsModal = ref(false)
 const treatmentsLoading = ref(false)
 const treatments = ref([])
@@ -304,6 +386,57 @@ const viewPatient = (patient) => {
 const closeDetailsModal = () => {
   showDetailsModal.value = false
   selectedPatient.value = null
+}
+
+const editPatient = (patient) => {
+  editForm.value = {
+    id: patient.id,
+    name: patient.name,
+    gender: patient.gender || '',
+    dob: patient.dob || '',
+    blood_group: patient.blood_group || '',
+    address: patient.address || '',
+    phone: patient.phone || ''
+  }
+  showEditModal.value = true
+}
+
+const closeEditModal = () => {
+  showEditModal.value = false
+  editForm.value = {
+    id: null,
+    name: '',
+    gender: '',
+    dob: '',
+    blood_group: '',
+    address: '',
+    phone: ''
+  }
+}
+
+const savePatient = async () => {
+  saving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/api/admin/patients/${editForm.value.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(editForm.value)
+    })
+    const data = await res.json()
+    if (data.success) {
+      alert('Patient updated successfully')
+      closeEditModal()
+      loadPatients()
+    } else {
+      alert(data.message || 'Failed to update patient')
+    }
+  } catch (err) {
+    alert('Error updating patient')
+    console.error(err)
+  } finally {
+    saving.value = false
+  }
 }
 
 const viewTreatments = async (patient) => {
